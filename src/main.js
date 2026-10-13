@@ -1,6 +1,4 @@
 import './css/main.css'
+import { Editor } from './editor/editor.js'
 
-document.querySelector('#app').innerHTML = `
-<div>Grand Prix</div>
-`
-
+new Editor(document.querySelector('#app'))
