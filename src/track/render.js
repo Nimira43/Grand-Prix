@@ -18,7 +18,7 @@ export const COLOURS = {
   garageRoof: '#24272d',
 }
 
-const EXTEND = 0.03
+const EXTEND = 0.03 
 
 export function drawGrass(ctx, cols, rows, T) {
   ctx.fillStyle = COLOURS.grassA
@@ -27,7 +27,7 @@ export function drawGrass(ctx, cols, rows, T) {
   for (let x = 0; x < cols; x += 4) ctx.fillRect(x * T, 0, 2 * T, rows * T)
 }
 
-export function drawPieces(ctx, pieces, T) {
+export function drawPieces(ctx, pieces, T, { details = true } = {}) {
   const withLocal = (piece, fn) => {
     const [a, b, c, d, e, f] = localMatrix(piece)
     ctx.save()
@@ -69,6 +69,7 @@ export function drawPieces(ctx, pieces, T) {
     })
   }
 
+  if (!details) return
   for (const piece of pieces) {
     if (piece.type === 'start') withLocal(piece, () => startDetails(ctx))
   }
@@ -182,7 +183,6 @@ export function drawCar(ctx, x, y, heading, teamId, T) {
   ctx.translate(x * T, y * T)
   ctx.rotate(heading)
   ctx.scale(T, T)
-
   ctx.fillStyle = '#111'
   for (const [tx, ty] of [
     [0.1, -0.085],

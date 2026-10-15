@@ -9,19 +9,29 @@ import {
 } from '../track/track.js'
 import { analyseTrack } from '../track/analyse.js'
 import { drawGrass, drawPieces, drawCar, COLOURS } from '../track/render.js'
-import { DRIVERS } from '../data/grid.js'
+import { DRIVERS, TEAMS } from '../data/grid.js'
 import * as store from '../track/storage.js'
 
 const ZOOMS = [12, 16, 20, 24, 32, 40, 48, 64]
-const DEFAULT_ZOOM = 4
-const PAN_MARGIN = 160
+const DEFAULT_ZOOM = 4 
+const PAN_MARGIN = 160 
 const UNDO_LIMIT = 100
+const DRIVER_KEY = 'grand-prix.testDriver'
+
+function loadDriverIndex() {
+  try {
+    const i = Number(localStorage.getItem(DRIVER_KEY))
+    return Number.isInteger(i) && i >= 0 && i < DRIVERS.length ? i : 0
+  } catch {
+    return 0
+  }
+}
 
 const esc = (s) =>
   String(s).replace(
     /[&<>'']/g,
     (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&quot;', "'": '&#39;' })[
+      ({ '&': '&amp', '<': '&lt', '>': '&gt', '"': '&quot', "'": '&#39' })[
         c
       ],
   )
@@ -29,18 +39,21 @@ const esc = (s) =>
 export class Editor {
   constructor(root) {
     this.root = root
+    this.active = true
+    this.onTestDrive = null 
+    this.driverIndex = loadDriverIndex()
     this.track = store.loadDraft() ?? store.exampleTrack()
-    this.tool = 'straight'
+    this.tool = 'straight' 
     this.rot = 0
     this.mirror = false
     this.zoom = DEFAULT_ZOOM
     this.cam = { x: 0, y: 0 }
-    this.hover = null
+    this.hover = null 
     this.overlays = { grid: true, line: true, checkpoints: false, cars: true }
     this.undoStack = []
     this.redoStack = []
-    this.stroke = null
-    this.pan = null
+    this.stroke = null 
+    this.pan = null 
     this.spaceHeld = false
     this.trackCanvas = document.createElement('canvas')
     this.trackCanvasKey = ''
@@ -131,17 +144,17 @@ export class Editor {
               <h3>Controls</h3>
               <p><b>Left drag</b> paint · <b>Right drag</b> erase</p>
               <p><b>Middle drag</b> or <b>Space + drag</b> pan · <b>Wheel</b> zoom</p>
-              <p><kbd>1</kbd>–<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip</p>
+              <p><kbd>1</kbd>–<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> test drive</p>
               <p>The start straight sets the racing direction: cars race towards the chequered line.</p>
             </section>
 
-            <button 
-              class='gp-test' 
-              disabled 
-              title='Arrives with the race engine'
-            >
-              ▶ Test drive
-            </button>
+            <section class='gp-testdrive'>
+              <h3>Test drive</h3>
+              <select id='gp-driver' title='Choose whose seat you take'>
+                ${DRIVERS.map((d, i) => `<option value='${i}'>${esc(d.name)} (${esc(TEAMS[d.team].name)})</option>`).join('')}
+              </select>
+              <button class='gp-test' data-action='test' id='gp-test' disabled>▶ Test drive <kbd>T</kbd></button>
+            </section>
           </aside>
 
           <div class='gp-stage' id='gp-stage'>
@@ -178,7 +191,10 @@ export class Editor {
       loadList: $('#gp-load-list'),
       importInput: $('#gp-import'),
       toast: $('#gp-toast'),
+      driver: $('#gp-driver'),
+      test: $('#gp-test'),
     }
+    this.el.driver.value = String(this.driverIndex)
     this.ctx = this.el.canvas.getContext('2d')
   }
 
@@ -274,6 +290,14 @@ export class Editor {
       })
     }
 
+    this.el.driver.addEventListener('change', () => {
+      this.driverIndex = Number(this.el.driver.value)
+      try {
+        localStorage.setItem(DRIVER_KEY, String(this.driverIndex))
+      } catch {}
+      this.el.driver.blur()
+    })
+
     name.addEventListener('input', () => {
       this.track.name = name.value.trim() || 'Untitled Circuit'
       store.saveDraft(this.track)
@@ -366,10 +390,13 @@ export class Editor {
         return this.zoomAt(this.zoom - 1)
       case 'fit':
         return this.fit()
+      case 'test':
+        return this.startTestDrive()
     }
   }
 
   onKeyDown(e) {
+    if (!this.active) return
     const typing = e.target.closest?.('input, textarea, select')
     const ctrl = e.ctrlKey || e.metaKey
     const k = e.key.toLowerCase()
@@ -448,6 +475,9 @@ export class Editor {
           case 'v':
             this.toggleOverlay('cars')
             break
+          case 't':
+            this.startTestDrive()
+            break
           default:
             return
         }
@@ -512,6 +542,7 @@ export class Editor {
   }
 
   onMouseMove(e) {
+    if (!this.active) return
     if (this.pan) {
       this.cam.x -= e.clientX - this.pan.x
       this.cam.y -= e.clientY - this.pan.y
@@ -583,6 +614,7 @@ export class Editor {
       this.trackChanged()
     }
   }
+
 
   trackChanged({ redraw = true, autosave = true } = {}) {
     this.analysis = analyseTrack(this.track)
@@ -676,6 +708,18 @@ export class Editor {
     )
   }
 
+  startTestDrive() {
+    if (!this.analysis.ok)
+      return this.toast('Finish the circuit before driving it.', 'error')
+    this.stroke = null
+    this.pan = null
+    this.spaceHeld = false
+    this.onTestDrive?.({
+      track: this.track.clone(),
+      driverIndex: this.driverIndex,
+    })
+  }
+
   openLoadDialog() {
     const tracks = store.listTracks()
     const list = this.el.loadList
@@ -691,7 +735,7 @@ export class Editor {
         </li>`,
           )
           .join('')
-      : '<li class="gp-empty">No saved circuits yet.</li>'
+      : "<li class='gp-empty'>No saved circuits yet.</li>"
     list.onclick = (e) => {
       const load = e.target.closest('[data-load]')?.dataset.load
       const del = e.target.closest('[data-delete]')?.dataset.delete
@@ -728,6 +772,10 @@ export class Editor {
 
   renderStatus() {
     const a = this.analysis
+    this.el.test.disabled = !a.ok
+    this.el.test.title = a.ok
+      ? 'Drive this circuit (T)'
+      : 'Finish the circuit first'
     if (a.ok) {
       const l = a.loop
       this.el.status.innerHTML = `
@@ -785,7 +833,7 @@ export class Editor {
     const mapW = this.track.cols * this.T
     const mapH = this.track.rows * this.T
     const clampAxis = (v, map, view) => {
-      if (map + PAN_MARGIN * 2 <= view) return (map - view) / 2
+      if (map + PAN_MARGIN * 2 <= view) return (map - view) / 2 
       return Math.max(-PAN_MARGIN, Math.min(map + PAN_MARGIN - view, v))
     }
     this.cam.x = clampAxis(this.cam.x, mapW, this.view.w)
@@ -841,7 +889,7 @@ export class Editor {
 
   frame(time) {
     requestAnimationFrame(this.frame)
-    if (!this.view) return
+    if (!this.view || !this.active) return
     const { ctx } = this
     const { w, h, dpr } = this.view
     const T = this.T
@@ -905,7 +953,7 @@ export class Editor {
     ctx.strokeStyle = 'rgba(255, 214, 0, 0.85)'
     ctx.lineWidth = Math.max(1.5, T * 0.04)
     ctx.setLineDash([T * 0.25, T * 0.18])
-    ctx.lineDashOffset = -(time / 40) % (T * 0.43)
+    ctx.lineDashOffset = -(time / 40) % (T * 0.43) 
     ctx.stroke()
     ctx.setLineDash([])
 
