@@ -1,5 +1,5 @@
-export const ROAD_WIDTH = 0.62
-export const START_WIDTH = 1.3
+export const ROAD_WIDTH = 0.8
+export const START_WIDTH = 1.48
 export const TILE_METRES = 24
 
 function line(a, b, n = 6) {
@@ -71,7 +71,6 @@ function filleted(points, radius, perCorner = 14) {
 }
 
 const HALF_PI = Math.PI / 2
-
 const port = (x, y, dx, dy) => ({ x, y, dx, dy })
 
 export const PIECES = {
@@ -165,18 +164,19 @@ export const START_LAYOUT = {
   taperIn: 1,
   taperOut: 9,
   pitLane: [
-    [1.0, 1.05],
-    [1.7, 0.5],
-    [8.3, 0.5],
-    [9.0, 1.05],
+    [1.0, 1.1],
+    [1.7, 0.45],
+    [8.3, 0.45],
+    [9.0, 1.1],
   ],
+  pitLaneWidth: 0.24,
   pitWall: [
-    [1.85, 0.75],
-    [8.15, 0.75],
+    [1.85, 0.66],
+    [8.15, 0.66],
   ],
   gridSlots: Array.from({ length: 22 }, (_, k) => [
     8.5 - 0.42 - k * 0.33,
-    1.5 + (k % 2 === 0 ? -0.28 : 0.28),
+    1.5 + (k % 2 === 0 ? -0.33 : 0.33),
   ]),
 }
 

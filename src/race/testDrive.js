@@ -5,12 +5,27 @@ import { buildSurface } from './surface.js'
 import { carStats, createCar, stepCar, speedKmh } from './carPhysics.js'
 import { LapTimer, formatTime } from './laps.js'
 
-const VIEW_COLS = 22
-const VIEW_ROWS = 12.5
+const ZOOM_STEPS = [9, 10, 12, 14, 16, 18, 22, 26]
+const DEFAULT_ZOOM = 3
+const ZOOM_KEY = 'grand-prix.raceZoom'
 const STEP = 1 / 120
 const MARGIN = 2
 const LOOK_AHEAD = 0.45
-const MAX_WORLD_PIXELS = 30_000_000
+const MAX_LEAD = 0.55
+const CHUNK = 400
+
+function loadZoom() {
+  try {
+    const i = Number(localStorage.getItem(ZOOM_KEY))
+    return localStorage.getItem(ZOOM_KEY) != null &&
+      Number.isInteger(i) &&
+      ZOOM_STEPS[i]
+      ? i
+      : DEFAULT_ZOOM
+  } catch {
+    return DEFAULT_ZOOM
+  }
+}
 
 const STEER_KEYS = {
   KeyQ: 'throttle',
@@ -33,8 +48,9 @@ export class TestDrive {
     this.onExit = onExit
     this.surface = buildSurface(track)
     this.keys = { throttle: false, brake: false, left: false, right: false }
-    this.worldKey = ''
-    this.worldCanvas = document.createElement('canvas')
+    this.zoom = loadZoom()
+    this.chunks = new Map()
+    this.chunkKey = ''
 
     this.buildDom()
     this.bind()
@@ -58,7 +74,7 @@ export class TestDrive {
       </div>
 
       <div class='gp-d-lights' data-hud='lights'>
-        ${"<div class='gp-d-pod'><i></i><i></i></div>".repeat(5)}
+        ${'<div class="gp-d-pod"><i></i><i></i></div>'.repeat(5)}
       </div>
 
       <div class='gp-d-msg' data-hud='msg'></div>
@@ -76,7 +92,7 @@ export class TestDrive {
       </div>
 
       <div class='gp-d-help'>
-        <kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor
+        <kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>-</kbd> zoom · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor
       </div>`
     document.body.appendChild(root)
     this.root = root
@@ -102,6 +118,10 @@ export class TestDrive {
       if (e.repeat) return
       if (e.code === 'Escape') this.exit()
       else if (e.code === 'KeyR') this.reset()
+      else if (e.code === 'Equal' || e.code === 'NumpadAdd')
+        this.setZoom(this.zoom - 1)
+      else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
+        this.setZoom(this.zoom + 1)
       else if (e.code === 'Space') this.paused = !this.paused
       else return
       e.preventDefault()
@@ -153,7 +173,8 @@ export class TestDrive {
     const dpr = window.devicePixelRatio || 1
     const w = window.innerWidth
     const h = window.innerHeight
-    this.view = { w, h, dpr, T: Math.min(w / VIEW_COLS, h / VIEW_ROWS) }
+    const cols = ZOOM_STEPS[this.zoom]
+    this.view = { w, h, dpr, T: Math.min(w / cols, h / ((cols * 9) / 16)) }
     this.canvas.width = Math.round(w * dpr)
     this.canvas.height = Math.round(h * dpr)
     this.canvas.style.width = `${w}px`
@@ -264,15 +285,28 @@ export class TestDrive {
     this.updateHud()
   }
 
+  setZoom(index) {
+    const next = Math.max(0, Math.min(ZOOM_STEPS.length - 1, index))
+    if (next === this.zoom) return
+    this.zoom = next
+    try {
+      localStorage.setItem(ZOOM_KEY, String(next))
+    } catch {}
+    this.resize()
+    this.flash(`ZOOM ${ZOOM_STEPS.length - next}/${ZOOM_STEPS.length}`, 0.9)
+  }
+
   updateCamera(dt) {
     const car = this.car
-    const tx = car.x + Math.cos(car.travel) * car.speed * LOOK_AHEAD
-    const ty = car.y + Math.sin(car.travel) * car.speed * LOOK_AHEAD
+    const { w, h, T } = this.view
+    const cap = (Math.min(w, h) / T / 2) * MAX_LEAD
+    const lead = Math.min(car.speed * LOOK_AHEAD, cap)
+    const tx = car.x + Math.cos(car.travel) * lead
+    const ty = car.y + Math.sin(car.travel) * lead
     const k = 1 - Math.exp(-dt * 4)
     this.cam.x += (tx - this.cam.x) * k
     this.cam.y += (ty - this.cam.y) * k
 
-    const { w, h, T } = this.view
     const halfW = w / T / 2
     const halfH = h / T / 2
     const clampAxis = (v, size, half) => {
@@ -284,31 +318,57 @@ export class TestDrive {
     this.cam.y = clampAxis(this.cam.y, this.track.rows, halfH)
   }
 
-  worldImage(T) {
-    const cols = this.track.cols + MARGIN * 2
-    const rows = this.track.rows + MARGIN * 2
-    let scale = Math.min(this.view.dpr, 2)
-    while (
-      cols * T * scale * rows * T * scale > MAX_WORLD_PIXELS &&
-      scale > 0.5
-    )
-      scale *= 0.85
-    const key = `${T.toFixed(2)}|${scale.toFixed(2)}`
-    if (key !== this.worldKey) {
-      const c = this.worldCanvas
-      c.width = Math.round(cols * T * scale)
-      c.height = Math.round(rows * T * scale)
-      const ctx = c.getContext('2d')
-      ctx.scale(scale, scale)
-      ctx.fillStyle = '#1f6a2a'
-      ctx.fillRect(0, 0, cols * T, rows * T)
-      ctx.translate(MARGIN * T, MARGIN * T)
-      drawTyreWall(ctx, this.track.cols, this.track.rows, T)
-      drawGrass(ctx, this.track.cols, this.track.rows, T)
-      drawPieces(ctx, this.track.pieces, T)
-      this.worldKey = key
+  drawWorld(ctx, T) {
+    const { w, h, dpr } = this.view
+    const scale = Math.min(dpr, 2)
+    const key = `${T.toFixed(3)}|${scale}`
+    if (key !== this.chunkKey) {
+      this.chunks.clear()
+      this.chunkKey = key
     }
-    return this.worldCanvas
+
+    const ox = -Math.round(MARGIN * T)
+    const oy = ox
+    const left = this.cam.x * T - w / 2 - ox
+    const top = this.cam.y * T - h / 2 - oy
+    const maxX = (this.track.cols + MARGIN * 2) * T
+    const maxY = (this.track.rows + MARGIN * 2) * T
+    const i0 = Math.max(0, Math.floor(left / CHUNK))
+    const j0 = Math.max(0, Math.floor(top / CHUNK))
+    const i1 = Math.min(
+      Math.ceil(maxX / CHUNK) - 1,
+      Math.floor((left + w) / CHUNK),
+    )
+    const j1 = Math.min(
+      Math.ceil(maxY / CHUNK) - 1,
+      Math.floor((top + h) / CHUNK),
+    )
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const k = `${i},${j}`
+        let chunk = this.chunks.get(k)
+        if (!chunk) {
+          chunk = this.buildChunk(i, j, T, scale, -ox)
+          this.chunks.set(k, chunk)
+        }
+        ctx.drawImage(chunk, ox + i * CHUNK, oy + j * CHUNK, CHUNK, CHUNK)
+      }
+    }
+  }
+
+  buildChunk(i, j, T, scale, margin) {
+    const c = document.createElement('canvas')
+    c.width = c.height = Math.ceil(CHUNK * scale)
+    const ctx = c.getContext('2d')
+    ctx.scale(scale, scale)
+    ctx.translate(-i * CHUNK, -j * CHUNK)
+    ctx.fillStyle = '#1f6a2a'
+    ctx.fillRect(i * CHUNK, j * CHUNK, CHUNK, CHUNK)
+    ctx.translate(margin, margin)
+    drawTyreWall(ctx, this.track.cols, this.track.rows, T)
+    drawGrass(ctx, this.track.cols, this.track.rows, T)
+    drawPieces(ctx, this.track.pieces, T)
+    return c
   }
 
   draw() {
@@ -322,10 +382,7 @@ export class TestDrive {
       Math.round(h / 2 - this.cam.y * T),
     )
 
-    const world = this.worldImage(T)
-    const cols = this.track.cols + MARGIN * 2
-    const rows = this.track.rows + MARGIN * 2
-    ctx.drawImage(world, -MARGIN * T, -MARGIN * T, cols * T, rows * T)
+    this.drawWorld(ctx, T)
 
     for (const p of this.particles) {
       ctx.globalAlpha = Math.max(0, p.life / p.max)
@@ -432,7 +489,7 @@ export class TestDrive {
     ctx.strokeStyle = '#e10600'
     ctx.lineWidth = 3
     ctx.beginPath()
-    const k = 7 / s
+    const k = 7 / s // a 14px tick whatever the scale
     ctx.moveTo(ox + (f.x - f.nx * k) * s, oy + (f.y - f.ny * k) * s)
     ctx.lineTo(ox + (f.x + f.nx * k) * s, oy + (f.y + f.ny * k) * s)
     ctx.stroke()
@@ -468,7 +525,7 @@ function drawTyreWall(ctx, cols, rows, T) {
     ctx.fillStyle = Math.floor(i / 4) % 2 ? '#e10600' : '#f2f2f2'
     ctx.fill()
   }
-  const off = [-0.14, -0.38] // two rows of tyres
+  const off = [-0.14, -0.38]
   for (const o of off) {
     let i = 0
     for (let x = o; x <= cols - o + 1e-6; x += gap) {

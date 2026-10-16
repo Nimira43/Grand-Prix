@@ -10,8 +10,8 @@ import {
   xformDir,
 } from './pieces.js'
 
-export const CHECKPOINT_SPACING = 4
-const SAMPLE_STEP = 0.25
+export const CHECKPOINT_SPACING = 4 
+const SAMPLE_STEP = 0.25 
 
 export function analyseTrack(track) {
   const result = {
@@ -119,7 +119,6 @@ function buildLoop(order, geo, start, track) {
 
   const samples = resampleLoop(centre, SAMPLE_STEP)
   const length = samples.length * SAMPLE_STEP
-
   const startLen = PIECES.start.w
   const finishS = START_LAYOUT.finishU
 
@@ -147,7 +146,6 @@ function buildLoop(order, geo, start, track) {
   }
 
   const racingLine = buildRacingLine(samples)
-
   const xf = makeXform('start', start.rot, start.mirror, start.x, start.y)
   const [hx, hy] = xformDir(1, 0, start.rot, start.mirror)
   const heading = Math.atan2(hy, hx)
@@ -234,7 +232,7 @@ function sampleAt(samples, s, step) {
 
 function buildRacingLine(samples) {
   const n = samples.length
-  const limit = ROAD_WIDTH / 2 - 0.1
+  const limit = ROAD_WIDTH / 2 - 0.16
   const offset = new Float64Array(n)
   const px = new Float64Array(n)
   const py = new Float64Array(n)
@@ -242,7 +240,7 @@ function buildRacingLine(samples) {
     px[i] = samples[i].x + samples[i].nx * offset[i]
     py[i] = samples[i].y + samples[i].ny * offset[i]
   }
-  for (let i = 0; i < n; i++) place(i);
+  for (let i = 0; i < n; i++) place(i)
   for (let iter = 0; iter < 400; iter++) {
     for (let i = 0; i < n; i++) {
       const a = (i - 1 + n) % n

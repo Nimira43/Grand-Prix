@@ -18,7 +18,7 @@ export const COLOURS = {
   garageRoof: '#24272d',
 }
 
-const EXTEND = 0.03 
+const EXTEND = 0.03
 
 export function drawGrass(ctx, cols, rows, T) {
   ctx.fillStyle = COLOURS.grassA
@@ -111,7 +111,7 @@ function polyline(ctx, pts) {
 function startEdges(ctx) {
   ctx.strokeStyle = COLOURS.edge
   polyline(ctx, START_LAYOUT.pitLane)
-  ctx.lineWidth = 0.36
+  ctx.lineWidth = START_LAYOUT.pitLaneWidth + 0.06
   ctx.stroke()
   ctx.lineWidth = 0.08
   polyline(ctx, startOutline(-1))
@@ -122,7 +122,7 @@ function startEdges(ctx) {
 
 function startSurface(ctx) {
   polyline(ctx, START_LAYOUT.pitLane)
-  ctx.lineWidth = 0.3
+  ctx.lineWidth = START_LAYOUT.pitLaneWidth
   ctx.strokeStyle = COLOURS.pitLane
   ctx.stroke()
 
@@ -139,19 +139,19 @@ function startDetails(ctx) {
   ctx.lineWidth = 0.06
   ctx.strokeStyle = '#d9d9d9'
   ctx.stroke()
-
   const g0 = 1.9
   const g1 = 8.1
   ctx.fillStyle = COLOURS.garageRoof
-  ctx.fillRect(g0, 0.04, g1 - g0, 0.32)
+  ctx.fillRect(g0, 0.03, g1 - g0, 0.26)
   const gw = (g1 - g0) / TEAM_ORDER.length
+
   TEAM_ORDER.forEach((id, i) => {
     const team = TEAMS[id]
     const x = g0 + i * gw + 0.04
     ctx.fillStyle = team.colour
-    ctx.fillRect(x, 0.08, gw - 0.08, 0.2)
+    ctx.fillRect(x, 0.06, gw - 0.08, 0.15)
     ctx.fillStyle = team.accent
-    ctx.fillRect(x, 0.26, gw - 0.08, 0.04)
+    ctx.fillRect(x, 0.2, gw - 0.08, 0.04)
   })
 
   ctx.strokeStyle = COLOURS.edge

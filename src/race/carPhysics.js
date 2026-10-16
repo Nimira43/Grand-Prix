@@ -23,13 +23,13 @@ export const PHYS = {
   grassDrag: 9, // how hard grass slows you when you're faster than that
 
   // steerLow: 5.0, // how fast the nose rotates at full lock, at walking pace (rad/s)
-  steerLow: 2.0, // how fast the nose rotates at full lock, at walking pace (rad/s)
+  steerLow: 2.8, // how fast the nose rotates at full lock, at walking pace (rad/s)
 
   //steerHigh: 3.4, // ...and at top speed (just more than the tyres can follow)
-  steerHigh: 2.0, // ...and at top speed (just more than the tyres can follow)
+  steerHigh: 2.4, // ...and at top speed (just more than the tyres can follow)
 
   //steerBuild: 2.6, // how quickly lock winds on while O/P is held (full lock in ~0.4s)
-  steerBuild: 1.6, // how quickly lock winds on while O/P is held (full lock in ~0.4s)
+  steerBuild: 2.0, // how quickly lock winds on while O/P is held (full lock in ~0.4s)
 
   steerReturn: 6, // how quickly the wheel self-centres when you let go
   maxSlip: 0.3, // largest gap between nose and direction of travel (rad)
