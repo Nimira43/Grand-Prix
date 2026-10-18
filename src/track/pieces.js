@@ -1,4 +1,4 @@
-export const ROAD_WIDTH = 0.8
+export const ROAD_WIDTH = 0.85
 export const START_WIDTH = 1.48
 export const TILE_METRES = 24
 

@@ -5,14 +5,15 @@ import { buildSurface } from './surface.js'
 import { carStats, createCar, stepCar, speedKmh } from './carPhysics.js'
 import { LapTimer, formatTime } from './laps.js'
 
-const ZOOM_STEPS = [9, 10, 12, 14, 16, 18, 22, 26]
-const DEFAULT_ZOOM = 3
-const ZOOM_KEY = 'grand-prix.raceZoom'
+const ZOOM_STEPS = [9, 8.25, 7.5, 6.75, 6, 5.5, 5, 4.5]
+const DEFAULT_ZOOM = 0
+const ZOOM_KEY = 'grand-prix.raceZoomLevel'
 const STEP = 1 / 120
 const MARGIN = 2
 const LOOK_AHEAD = 0.45
-const MAX_LEAD = 0.55
+const MAX_LEAD = 0.65
 const CHUNK = 400
+const CHUNK_MEMORY = 150_000_000
 
 function loadZoom() {
   try {
@@ -74,7 +75,7 @@ export class TestDrive {
       </div>
 
       <div class='gp-d-lights' data-hud='lights'>
-        ${'<div class="gp-d-pod"><i></i><i></i></div>'.repeat(5)}
+        ${"<div class='gp-d-pod'><i></i><i></i></div>".repeat(5)}
       </div>
 
       <div class='gp-d-msg' data-hud='msg'></div>
@@ -92,7 +93,7 @@ export class TestDrive {
       </div>
 
       <div class='gp-d-help'>
-        <kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>-</kbd> zoom · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor
+        <kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor
       </div>`
     document.body.appendChild(root)
     this.root = root
@@ -119,9 +120,9 @@ export class TestDrive {
       if (e.code === 'Escape') this.exit()
       else if (e.code === 'KeyR') this.reset()
       else if (e.code === 'Equal' || e.code === 'NumpadAdd')
-        this.setZoom(this.zoom - 1)
-      else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
         this.setZoom(this.zoom + 1)
+      else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
+        this.setZoom(this.zoom - 1)
       else if (e.code === 'Space') this.paused = !this.paused
       else return
       e.preventDefault()
@@ -293,7 +294,7 @@ export class TestDrive {
       localStorage.setItem(ZOOM_KEY, String(next))
     } catch {}
     this.resize()
-    this.flash(`ZOOM ${ZOOM_STEPS.length - next}/${ZOOM_STEPS.length}`, 0.9)
+    this.flash(`ZOOM ${next + 1}/${ZOOM_STEPS.length}`, 0.9)
   }
 
   updateCamera(dt) {
@@ -347,12 +348,23 @@ export class TestDrive {
       for (let i = i0; i <= i1; i++) {
         const k = `${i},${j}`
         let chunk = this.chunks.get(k)
-        if (!chunk) {
+        if (chunk) {
+          this.chunks.delete(k)
+        } else {
           chunk = this.buildChunk(i, j, T, scale, -ox)
-          this.chunks.set(k, chunk)
         }
+        this.chunks.set(k, chunk)
         ctx.drawImage(chunk, ox + i * CHUNK, oy + j * CHUNK, CHUNK, CHUNK)
       }
+    }
+    const bytes = Math.ceil(CHUNK * scale) ** 2 * 4
+    const keep = Math.max(
+      (i1 - i0 + 3) * (j1 - j0 + 3),
+      Math.floor(CHUNK_MEMORY / bytes),
+    )
+    for (const k of this.chunks.keys()) {
+      if (this.chunks.size <= keep) break
+      this.chunks.delete(k)
     }
   }
 
@@ -489,7 +501,7 @@ export class TestDrive {
     ctx.strokeStyle = '#e10600'
     ctx.lineWidth = 3
     ctx.beginPath()
-    const k = 7 / s // a 14px tick whatever the scale
+    const k = 7 / s
     ctx.moveTo(ox + (f.x - f.nx * k) * s, oy + (f.y - f.ny * k) * s)
     ctx.lineTo(ox + (f.x + f.nx * k) * s, oy + (f.y + f.ny * k) * s)
     ctx.stroke()
