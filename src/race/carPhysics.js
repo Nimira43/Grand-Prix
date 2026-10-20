@@ -1,17 +1,3 @@
-// Grippy, arcade car physics. Pure functions with no DOM, so the same code can
-// later run thousands of headless races for tuning.
-//
-// The car has two angles:
-//   heading — where the nose points (what you steer: O turns it left, P right)
-//   travel  — the direction it is actually moving
-// Travel can only swing towards the heading as fast as the tyres allow
-// (grip ÷ speed). Steer harder than that and the car runs wide, and the extra
-// steering scrubs off speed, on top of whatever braking you do.
-//
-// Controls: Q accelerate, A brake, O steer left, P steer right (car-relative).
-//
-// Units: tiles, seconds, radians. Angle 0 = east, +π/2 = south (screen down).
-
 import { TEAMS, ENGINES } from '../data/grid.js'
 import { GRASS, BARRIER, surfaceAt } from './surface.js'
 
@@ -22,14 +8,18 @@ export const PHYS = {
   grassTop: 2.6, // top speed with all four wheels on grass
   grassDrag: 9, // how hard grass slows you when you're faster than that
 
+
   // steerLow: 5.0, // how fast the nose rotates at full lock, at walking pace (rad/s)
   steerLow: 2.8, // how fast the nose rotates at full lock, at walking pace (rad/s)
+
 
   //steerHigh: 3.4, // ...and at top speed (just more than the tyres can follow)
   steerHigh: 2.4, // ...and at top speed (just more than the tyres can follow)
 
+
   //steerBuild: 2.6, // how quickly lock winds on while O/P is held (full lock in ~0.4s)
   steerBuild: 2.0, // how quickly lock winds on while O/P is held (full lock in ~0.4s)
+
 
   steerReturn: 6, // how quickly the wheel self-centres when you let go
   maxSlip: 0.3, // largest gap between nose and direction of travel (rad)
@@ -44,8 +34,6 @@ export const PHYS = {
   kmhPerTile: 40, // display only: 8 tiles/s ≈ 320 km/h
 }
 
-// Ratings → small differences: best to worst car is roughly 2.5% a lap,
-// so a single spin or a bad start can decide a race.
 export function carStats(teamId) {
   const team = TEAMS[teamId]
   const engine = ENGINES[team.engine].rating
@@ -87,14 +75,11 @@ const WHEELS = [
   [-0.11, 0.09],
 ]
 
-// Steering is quickest at low speed and fades towards top speed. Nearly
-// stopped, you still get a little, so you can always turn away from the tyres.
 const steerRate = (car) =>
   (PHYS.steerLow +
     (PHYS.steerHigh - PHYS.steerLow) * Math.min(1, car.speed / car.stats.top)) *
   Math.min(1, PHYS.pivotMin + car.speed)
 
-// For the AI later: the steer input that turns the nose towards an angle.
 export function steerTowards(car, angle, dt) {
   return clamp(wrapAngle(angle - car.heading) / (steerRate(car) * dt), -1, 1)
 }
@@ -106,7 +91,6 @@ export function steerTowards(car, angle, dt) {
 export function stepCar(car, input, dt, surface) {
   const s = car.stats
   const v = car.speed
-  // The wheel winds towards what you ask for, so a quick tap is only a nudge.
   const asked = clamp(input.steer ?? 0, -1, 1)
   const rate = (asked === 0 ? PHYS.steerReturn : PHYS.steerBuild) * dt
   car.steer += clamp(asked - car.steer, -rate, rate)
@@ -115,30 +99,25 @@ export function stepCar(car, input, dt, surface) {
   const brake = clamp(input.brake ?? 0, 0, 1)
   car.braking = brake > 0 && v > 0.1
   car.throttle = throttle
-
-  // 1. Rotate the nose. Positive angles turn clockwise on screen: the car's right.
   car.heading += steer * steerRate(car) * dt
 
-  // 2. The direction of travel follows the nose, limited by grip.
   const maxTurn = s.grip / Math.max(v, 1)
   const want = wrapAngle(car.heading - car.travel)
   const turn = clamp(want, -maxTurn * dt, maxTurn * dt)
   car.travel = wrapAngle(car.travel + turn)
 
-  // The nose can't get more than maxSlip ahead of the travel: no spins, it runs wide.
   let slip = wrapAngle(car.heading - car.travel)
   if (Math.abs(slip) > PHYS.maxSlip) {
     slip = Math.sign(slip) * PHYS.maxSlip
     car.heading = car.travel + slip
   }
   car.heading = wrapAngle(car.heading)
-  // How hard we're leaning on the tyres: 0 below the limit, 1 when saturated.
+
   const over = Math.abs(want) > Math.abs(turn) + 1e-6
   car.slip = over
     ? Math.min(1, Math.abs(slip) / PHYS.maxSlip)
     : (Math.abs(slip) / PHYS.maxSlip) * 0.3
 
-  // 3. What are the wheels on?
   const cos = Math.cos(car.heading)
   const sin = Math.sin(car.heading)
   let onGrass = 0
@@ -153,10 +132,9 @@ export function stepCar(car, input, dt, surface) {
   car.grassFrac = onGrass / WHEELS.length
   const top = s.top * (1 - car.grassFrac) + PHYS.grassTop * car.grassFrac
 
-  // 4. Speed: throttle, brakes, engine braking, grass, scrub.
   let speed = v
   if (speed > top) {
-    speed = Math.max(top, speed - PHYS.grassDrag * dt) // dragged down on the grass
+    speed = Math.max(top, speed - PHYS.grassDrag * dt) 
   } else if (throttle > 0) {
     speed = Math.min(
       top,
@@ -169,7 +147,6 @@ export function stepCar(car, input, dt, surface) {
   speed -= PHYS.turnScrub * Math.abs(turn / dt) * speed * dt
   car.speed = Math.max(0, speed)
 
-  // 5. Move, and bounce off the tyre barrier at the map edge.
   let vx = Math.cos(car.travel) * car.speed
   let vy = Math.sin(car.travel) * car.speed
   let x = car.x + vx * dt
@@ -202,7 +179,6 @@ export function stepCar(car, input, dt, surface) {
   updateGearbox(car)
 }
 
-// Seven-speed box, purely for the rev counter now and the V12 sound later.
 const GEAR_TOPS = [0.24, 0.37, 0.5, 0.62, 0.74, 0.87, 1.02]
 
 function updateGearbox(car) {

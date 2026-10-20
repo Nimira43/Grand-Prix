@@ -9,7 +9,7 @@
   --red-soft: #ff5a5f;
   --green: #3ddc84;
   --amber: #ffd600;
-  --font: "Titillium Web", system-ui, sans-serif;
+  --font: 'Titillium Web', system-ui, sans-serif;
 }
 
 * {
@@ -467,9 +467,7 @@ kbd {
   border-left: 3px solid var(--green);
   font-weight: 600;
   pointer-events: none;
-  transition:
-    opacity 0.2s,
-    transform 0.2s;
+  transition: opacity 0.2s, transform 0.2s;
 }
 
 .gp-toast.is-visible {
@@ -627,9 +625,7 @@ kbd {
 
 .gp-d-pod.on i {
   background: #ff1a14;
-  box-shadow:
-    0 0 14px #ff1a14,
-    inset 0 0 0 2px #7a0000;
+  box-shadow: 0 0 14px #ff1a14, inset 0 0 0 2px #7a0000;
 }
 
 .gp-d-msg {
@@ -641,14 +637,10 @@ kbd {
   font-weight: 900;
   font-style: italic;
   letter-spacing: 0.04em;
-  text-shadow:
-    0 3px 0 #000,
-    0 0 24px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 3px 0 #000, 0 0 24px rgba(0, 0, 0, 0.6);
   opacity: 0;
   pointer-events: none;
-  transition:
-    opacity 0.15s,
-    transform 0.15s;
+  transition: opacity 0.15s, transform 0.15s;
   white-space: nowrap;
 }
 
@@ -768,4 +760,233 @@ kbd {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.gp-d-left {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: grid;
+  gap: 8px;
+  width: 210px;
+}
+
+.gp-d-left .gp-d-timing {
+  position: relative;
+  top: auto;
+  left: auto;
+}
+
+.gp-d-pos-label {
+  margin-left: auto;
+}
+
+.gp-d-tower {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: rgba(11, 13, 16, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+  max-height: calc(100vh - 200px);
+  overflow: hidden;
+}
+
+.gp-d-tower li {
+  display: grid;
+  grid-template-columns: 22px 4px 40px 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 19px;
+  font-size: 12.5px;
+}
+
+.gp-d-tower .p {
+  text-align: right;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.gp-d-tower i {
+  width: 4px;
+  height: 13px;
+  border-radius: 1px;
+}
+
+.gp-d-tower .c {
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.gp-d-tower .g {
+  text-align: right;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.gp-d-tower li.is-me {
+  background: rgba(255, 214, 0, 0.16);
+}
+
+.gp-d-tower li.is-me .c {
+  color: var(--amber);
+}
+
+.gp-d-tower li.is-spin .g::after {
+  content: ' ⟲';
+  color: var(--red-soft);
+}
+
+.gp-d-feed {
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  font-size: 18px;
+  line-height: 1.5;
+  color: #fff;
+  text-shadow: 0 2px 0 #000, 0 0 12px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.gp-d-results {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.gp-d-results.is-visible {
+  display: grid;
+}
+
+.gp-d-results-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--red);
+  border-radius: 8px;
+  padding: 16px 22px 12px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  min-width: 640px;
+}
+
+.gp-d-results-card h2 {
+  margin: 0 0 10px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.03em;
+}
+
+.gp-d-results-card h2 span {
+  color: var(--muted);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-left: 8px;
+}
+
+.gp-d-results-card table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.gp-d-results-card th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.gp-d-results-card td {
+  padding: 3px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  white-space: nowrap;
+}
+
+.gp-d-results-card td i {
+  display: inline-block;
+  width: 4px;
+  height: 12px;
+  margin-right: 8px;
+  vertical-align: -1px;
+}
+
+.gp-d-results-card td.p {
+  font-weight: 800;
+  text-align: right;
+  width: 30px;
+}
+
+.gp-d-results-card td.t {
+  color: var(--muted);
+}
+
+.gp-d-results-card td.n {
+  text-align: right;
+}
+
+.gp-d-results-card td.fl {
+  color: #c99bff;
+  font-weight: 700;
+}
+
+.gp-d-results-card td.pts {
+  font-weight: 800;
+  color: var(--amber);
+}
+
+.gp-d-results-card em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+  display: inline-block;
+  width: 26px;
+  text-align: left;
+}
+
+.gp-d-results-card em.up {
+  color: var(--green);
+}
+
+.gp-d-results-card em.down {
+  color: var(--red-soft);
+}
+
+.gp-d-results-card tr.is-me td {
+  background: rgba(255, 214, 0, 0.12);
+}
+
+.gp-d-results-foot {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.gp-test--alt {
+  background: var(--panel-2);
+  border-color: var(--line);
+  padding: 6px;
+}
+
+.gp-test--alt:hover:not(:disabled) {
+  background: #232832;
+  border-color: #4a5260;
+}
+
+.is-race .gp-d-lap b {
+  font-size: 24px;
 }

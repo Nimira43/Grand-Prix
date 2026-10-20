@@ -1,12 +1,13 @@
 import { analyseTrack } from '../track/analyse.js'
 import { drawGrass, drawPieces, drawCar } from '../track/render.js'
-import { DRIVERS, TEAMS } from '../data/grid.js'
+import { DRIVERS, TEAMS, POINTS } from '../data/grid.js'
 import { buildSurface } from './surface.js'
-import { carStats, createCar, stepCar, speedKmh } from './carPhysics.js'
-import { LapTimer, formatTime } from './laps.js'
+import { speedKmh } from './carPhysics.js'
+import { formatTime } from './laps.js'
+import { RaceSim } from './raceSim.js'
 
 const ZOOM_STEPS = [9, 8.25, 7.5, 6.75, 6, 5.5, 5, 4.5]
-const DEFAULT_ZOOM = 0
+const DEFAULT_ZOOM = 0 // Level 1
 const ZOOM_KEY = 'grand-prix.raceZoomLevel'
 const STEP = 1 / 120
 const MARGIN = 2
@@ -14,6 +15,8 @@ const LOOK_AHEAD = 0.45
 const MAX_LEAD = 0.65
 const CHUNK = 400
 const CHUNK_MEMORY = 150_000_000
+const AFTER_FLAG_SPEEDUP = 3
+const PARTICLE_RANGE = 14
 
 function loadZoom() {
   try {
@@ -39,13 +42,22 @@ const esc = (s) =>
   String(s).replace(/[&<>'']/g, (c) => `&#${c.charCodeAt(0)}`)
 
 export class TestDrive {
-  constructor({ track, driverIndex = 0, onExit }) {
+  constructor({
+    track,
+    driverIndex = 0,
+    mode = 'race',
+    difficulty = 'normal',
+    onExit,
+  }) {
     this.track = track
     this.analysis = analyseTrack(track)
     if (!this.analysis.ok) throw new Error('Circuit is not raceable')
     this.loop = this.analysis.loop
-    this.driver = DRIVERS[driverIndex] ?? DRIVERS[0]
+    this.driverIndex = DRIVERS[driverIndex] ? driverIndex : 0
+    this.driver = DRIVERS[this.driverIndex]
     this.team = TEAMS[this.driver.team]
+    this.mode = mode
+    this.difficulty = difficulty
     this.onExit = onExit
     this.surface = buildSurface(track)
     this.keys = { throttle: false, brake: false, left: false, right: false }
@@ -61,17 +73,27 @@ export class TestDrive {
     this.raf = requestAnimationFrame((t) => this.frame(t))
   }
 
+  get isRace() {
+    return this.mode === 'race'
+  }
+
   buildDom() {
     const root = document.createElement('div')
-    root.className = 'gp-drive'
+    root.className = `gp-drive ${this.isRace ? 'is-race' : 'is-practice'}`
     root.innerHTML = `
       <canvas class='gp-drive-view'></canvas>
 
-      <div class='gp-d-timing'>
-        <div class='gp-d-lap'><span>LAP</span><b data-hud='lap'>-</b></div>
-        <div class='gp-d-row'><span>Current</span><b data-hud='current'>-:--.---</b></div>
-        <div class='gp-d-row'><span>Last</span><b data-hud='last'>-:--.---</b></div>
-        <div class='gp-d-row'><span>Best</span><b data-hud='best'>-:--.---</b></div>
+      <div class='gp-d-left'>
+        <div class='gp-d-timing'>
+          <div class='gp-d-lap'>
+            <span>LAP</span><b data-hud='lap'>-</b>
+            ${this.isRace ? "<span class='gp-d-pos-label'>POS</span><b data-hud='pos'>-</b>" : ''}
+          </div>
+          <div class='gp-d-row'><span>Current</span><b data-hud='current'>-:--.---</b></div>
+          <div class='gp-d-row'><span>Last</span><b data-hud='last'>-:--.---</b></div>
+          <div class='gp-d-row'><span>Best</span><b data-hud='best'>-:--.---</b></div>
+        </div>
+        ${this.isRace ? "<ol class='gp-d-tower' data-hud='tower'></ol>" : ''}
       </div>
 
       <div class='gp-d-lights' data-hud='lights'>
@@ -79,6 +101,7 @@ export class TestDrive {
       </div>
 
       <div class='gp-d-msg' data-hud='msg'></div>
+      <div class='gp-d-feed' data-hud='feed'></div>
 
       <canvas class='gp-d-map' width='240' height='170'></canvas>
 
@@ -94,7 +117,9 @@ export class TestDrive {
 
       <div class='gp-d-help'>
         <kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor
-      </div>`
+      </div>
+
+      <div class='gp-d-results' data-hud='results'></div>`
     document.body.appendChild(root)
     this.root = root
     this.canvas = root.querySelector('.gp-drive-view')
@@ -151,23 +176,29 @@ export class TestDrive {
   }
 
   reset() {
-    const slot = this.loop.grid[0]
-    this.car = createCar(
-      carStats(this.driver.team),
-      slot.x,
-      slot.y,
-      slot.heading,
-    )
-    this.time = 0
+    this.sim = new RaceSim({
+      loop: this.loop,
+      surface: this.surface,
+      playerIndex: this.driverIndex,
+      field: this.isRace,
+      laps: this.track.laps,
+      difficulty: this.difficulty,
+    })
+    this.me = this.sim.player
     this.acc = 0
-    this.phase = 'lights'
-    this.lightsOutAt = 5.6 + 0.2 + Math.random() * 2.3
-    this.timer = null
     this.particles = []
     this.paused = false
     this.message = null
-    this.cam = { x: this.car.x, y: this.car.y }
+    this.eventsSeen = 0
+    this.feed = []
+    this.lapsSeen = 0
+    this.towerKey = ''
+    this.resultsShown = false
+    this.cam = { x: this.me.car.x, y: this.me.car.y }
     this.hud.lights.classList.add('is-visible')
+    this.hud.results.classList.remove('is-visible')
+    this.hud.results.innerHTML = ''
+    if (this.isRace) this.flash(`GRID: P${this.me.grid}`, 4)
   }
 
   resize() {
@@ -192,67 +223,76 @@ export class TestDrive {
   }
 
   tick(dt) {
-    this.time += dt
-    const car = this.car
+    const sim = this.sim
+    sim.step(dt, this.playerInput())
 
-    if (this.phase === 'lights') {
-      if (this.time >= this.lightsOutAt) {
-        this.phase = 'race'
-        this.timer = new LapTimer(this.loop, this.time)
-        this.flash('GO!', 0.8)
-      }
-      return
+    while (this.eventsSeen < sim.events.length) {
+      const ev = sim.events[this.eventsSeen++]
+      if (ev.text === 'LIGHTS OUT!') this.flash('GO!', 0.8)
+      else this.feed.push({ text: ev.text, until: sim.time + 3.5 })
     }
 
-    const x0 = car.x
-    const y0 = car.y
-    stepCar(car, this.playerInput(), dt, this.surface)
-    const event = this.timer.update(x0, y0, car.x, car.y, this.time, dt)
-    if (event === 'lap' && this.timer.lastLap != null) {
-      const best = this.timer.lastLap === this.timer.bestLap
-      this.flash(
-        `${best ? 'BEST LAP' : 'LAP'} ${formatTime(this.timer.lastLap)}`,
-        2.2,
-        best ? 'is-best' : '',
-      )
+    const t = this.me.timer
+    if (t && t.laps.length > this.lapsSeen) {
+      this.lapsSeen = t.laps.length
+      const best = t.lastLap === t.bestLap
+      if (this.me.finished) {
+        const pos = sim.finishOrder.indexOf(this.me) + 1
+        this.flash(`CHEQUERED FLAG: P${pos}`, 4, pos === 1 ? 'is-best' : '')
+      } else {
+        this.flash(
+          `${best ? 'BEST LAP' : 'LAP'} ${formatTime(t.lastLap)}`,
+          2.2,
+          best ? 'is-best' : '',
+        )
+      }
     }
     this.emitParticles(dt)
   }
 
   emitParticles(dt) {
-    const car = this.car
-    const back = -0.14
-    const bx = car.x + Math.cos(car.heading) * back
-    const by = car.y + Math.sin(car.heading) * back
-    const spray = (n, colour, size, speed, life) => {
-      for (let i = 0; i < n; i++) {
-        const a = car.travel + Math.PI + (Math.random() - 0.5) * 1.4
-        const s = speed * (0.4 + Math.random())
-        this.particles.push({
-          x: bx + (Math.random() - 0.5) * 0.15,
-          y: by + (Math.random() - 0.5) * 0.15,
-          vx: Math.cos(a) * s,
-          vy: Math.sin(a) * s,
-          life,
-          max: life,
-          size: size * (0.6 + Math.random() * 0.8),
-          colour,
-        })
-      }
-    }
     const rate = (perSecond) => (Math.random() < perSecond * dt ? 1 : 0)
-    if (car.grassFrac > 0 && car.speed > 1.2) {
-      spray(
-        rate(70 * car.grassFrac),
-        Math.random() < 0.5 ? '#6b4f2a' : '#3f8f3a',
-        0.05,
-        1.2,
-        0.5,
+    for (const e of this.sim.entries) {
+      const car = e.car
+      if (
+        Math.abs(car.x - this.cam.x) > PARTICLE_RANGE ||
+        Math.abs(car.y - this.cam.y) > PARTICLE_RANGE
       )
+        continue
+      const back = -0.14
+      const bx = car.x + Math.cos(car.heading) * back
+      const by = car.y + Math.sin(car.heading) * back
+      const spray = (n, colour, size, speed, life) => {
+        for (let i = 0; i < n; i++) {
+          const a = car.travel + Math.PI + (Math.random() - 0.5) * 1.4
+          const s = speed * (0.4 + Math.random())
+          this.particles.push({
+            x: bx + (Math.random() - 0.5) * 0.15,
+            y: by + (Math.random() - 0.5) * 0.15,
+            vx: Math.cos(a) * s,
+            vy: Math.sin(a) * s,
+            life,
+            max: life,
+            size: size * (0.6 + Math.random() * 0.8),
+            colour,
+          })
+        }
+      }
+      if (car.grassFrac > 0 && car.speed > 1.2) {
+        spray(
+          rate(70 * car.grassFrac),
+          Math.random() < 0.5 ? '#6b4f2a' : '#3f8f3a',
+          0.05,
+          1.2,
+          0.5,
+        )
+      }
+      if (car.slip > 0.85 && car.speed > 1.5)
+        spray(rate(40), 'rgba(220,220,220,0.5)', 0.11, 0.6, 0.7)
+      if (car.hitBarrier > 0.25) spray(6, '#222', 0.05, 2.5, 0.4)
+      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3)
+      car.contact = Math.max(0, (car.contact ?? 0) - dt * 4)
     }
-    if (car.slip > 0.85 && car.speed > 2)
-      spray(rate(40), 'rgba(220,220,220,0.5)', 0.11, 0.6, 0.7)
-    if (car.hitBarrier > 0.25) spray(6, '#222', 0.05, 2.5, 0.4)
 
     for (const p of this.particles) {
       p.x += p.vx * dt
@@ -261,26 +301,29 @@ export class TestDrive {
       p.vy *= 1 - 3 * dt
       p.life -= dt
     }
-    if (this.particles.length > 400)
-      this.particles.splice(0, this.particles.length - 400)
+    if (this.particles.length > 600)
+      this.particles.splice(0, this.particles.length - 600)
     this.particles = this.particles.filter((p) => p.life > 0)
   }
 
   flash(text, seconds, cls = '') {
-    this.message = { text, until: this.time + seconds, cls }
+    this.message = { text, until: this.sim.time + seconds, cls }
   }
 
   frame(now) {
     this.raf = requestAnimationFrame((t) => this.frame(t))
     const real = Math.min(0.1, (now - this.last) / 1000)
     this.last = now
-    if (!this.paused) {
-      this.acc += real
+    if (!this.paused && this.sim.phase !== 'done') {
+      const speedup = this.me.finished ? AFTER_FLAG_SPEEDUP : 1
+      this.acc += real * speedup
       while (this.acc >= STEP) {
         this.tick(STEP)
         this.acc -= STEP
       }
     }
+    if (this.isRace && this.sim.phase === 'done' && !this.resultsShown)
+      this.showResults()
     this.updateCamera(this.paused ? 0 : real)
     this.draw()
     this.updateHud()
@@ -298,7 +341,7 @@ export class TestDrive {
   }
 
   updateCamera(dt) {
-    const car = this.car
+    const car = this.me.car
     const { w, h, T } = this.view
     const cap = (Math.min(w, h) / T / 2) * MAX_LEAD
     const lead = Math.min(car.speed * LOOK_AHEAD, cap)
@@ -405,38 +448,78 @@ export class TestDrive {
     }
     ctx.globalAlpha = 1
 
-    const car = this.car
-    ctx.save()
-    ctx.translate((car.x + 0.035) * T, (car.y + 0.05) * T)
-    ctx.rotate(car.heading)
-    ctx.fillStyle = 'rgba(0,0,0,0.28)'
-    ctx.fillRect(-0.19 * T, -0.1 * T, 0.39 * T, 0.2 * T)
-    ctx.restore()
-    drawCar(ctx, car.x, car.y, car.heading, this.driver.team, T)
-    if (car.braking) {
+    const halfW = w / T / 2 + 0.5
+    const halfH = h / T / 2 + 0.5
+    const visible = this.sim.entries.filter(
+      (e) =>
+        Math.abs(e.car.x - this.cam.x) < halfW &&
+        Math.abs(e.car.y - this.cam.y) < halfH,
+    )
+    for (const e of visible) {
+      const car = e.car
       ctx.save()
-      ctx.translate(car.x * T, car.y * T)
+      ctx.translate((car.x + 0.035) * T, (car.y + 0.05) * T)
       ctx.rotate(car.heading)
-      ctx.shadowColor = '#ff2a24'
-      ctx.shadowBlur = T * 0.25
-      ctx.fillStyle = '#ff4a44'
-      ctx.fillRect(-0.215 * T, -0.025 * T, 0.03 * T, 0.05 * T)
+      ctx.fillStyle = 'rgba(0,0,0,0.28)'
+      ctx.fillRect(-0.19 * T, -0.1 * T, 0.39 * T, 0.2 * T)
       ctx.restore()
+    }
+    for (const e of visible) {
+      const car = e.car
+      if (e.isPlayer && this.isRace) {
+        ctx.beginPath()
+        ctx.arc(car.x * T, car.y * T, 0.27 * T, 0, Math.PI * 2)
+        ctx.fillStyle = 'rgba(255,255,255,0.13)'
+        ctx.fill()
+      }
+      drawCar(ctx, car.x, car.y, car.heading, e.driver.team, T)
+      if (car.braking) {
+        ctx.save()
+        ctx.translate(car.x * T, car.y * T)
+        ctx.rotate(car.heading)
+        ctx.shadowColor = '#ff2a24'
+        ctx.shadowBlur = T * 0.25
+        ctx.fillStyle = '#ff4a44'
+        ctx.fillRect(-0.215 * T, -0.025 * T, 0.03 * T, 0.05 * T)
+        ctx.restore()
+      }
+    }
+    if (this.isRace) {
+      ctx.font = `700 ${Math.round(Math.max(10, Math.min(15, T * 0.085)))}px 'Titillium Web', sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'bottom'
+      for (const e of visible) {
+        const x = e.car.x * T
+        const y = e.car.y * T - Math.max(14, 0.24 * T)
+        ctx.lineWidth = 3
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)'
+        ctx.strokeText(e.driver.code, x, y)
+        ctx.fillStyle = e.isPlayer ? '#ffd600' : '#ffffff'
+        ctx.fillText(e.driver.code, x, y)
+      }
     }
 
     this.drawMinimap()
   }
 
   updateHud() {
-    const car = this.car
-    const t = this.timer
+    const sim = this.sim
+    const me = this.me
+    const car = me.car
+    const t = me.timer
     const hud = this.hud
     hud.speed.textContent = speedKmh(car)
-    hud.gear.textContent = this.phase === 'lights' ? 'N' : car.gear
-    hud.lap.textContent = t ? Math.max(1, t.lap) : '-'
-    hud.current.textContent = t
-      ? formatTime(t.current(this.time))
-      : formatTime(null)
+    hud.gear.textContent = sim.phase === 'lights' ? 'N' : car.gear
+    if (this.isRace) {
+      const lap = t ? Math.min(sim.laps, Math.max(1, t.laps.length + 1)) : 1
+      hud.lap.textContent = `${lap}/${sim.laps}`
+    } else {
+      hud.lap.textContent = t ? Math.max(1, t.lap) : '-'
+    }
+    hud.current.textContent =
+      t && !me.finished
+        ? formatTime(t.current(sim.time))
+        : formatTime(t?.lastLap)
     hud.last.textContent = formatTime(t?.lastLap)
     hud.best.textContent = formatTime(t?.bestLap)
     hud.last.classList.toggle(
@@ -445,25 +528,112 @@ export class TestDrive {
     )
 
     const lit =
-      this.phase === 'lights' ? 0 : Math.round(((car.rpm - 9000) / 6000) * 15)
+      sim.phase === 'lights' ? 0 : Math.round(((car.rpm - 9000) / 6000) * 15)
     this.revLeds.forEach((led, i) => led.classList.toggle('on', i < lit))
 
-    if (this.phase === 'lights') {
-      const on = Math.min(5, Math.floor(Math.max(0, this.time - 0.6)))
-      this.lightPods.forEach((pod, i) => pod.classList.toggle('on', i < on))
+    // Start lights: one pod per second, then all out together.
+    const lights = sim.lightsLit
+    if (lights >= 0) {
+      this.lightPods.forEach((pod, i) =>
+        pod.classList.toggle('on', i < lights),
+      )
     } else {
       this.lightPods.forEach((pod) => pod.classList.remove('on'))
-      if (this.time > this.timer.lapStart + 1.5 || (t && t.lap > 1))
-        this.hud.lights.classList.remove('is-visible')
+      if (sim.raceTime > 1.5) hud.lights.classList.remove('is-visible')
     }
+
+    if (this.isRace) this.updateTower()
 
     let msg = null
     if (this.paused) msg = { text: 'PAUSED', cls: '' }
-    else if (t && this.time - t.missed < 1.5)
+    else if (t && sim.time - t.missed < 1.5)
       msg = { text: 'CHECKPOINT MISSED: GO BACK', cls: 'is-warn' }
-    else if (this.message && this.time < this.message.until) msg = this.message
+    else if (this.message && sim.time < this.message.until) msg = this.message
     hud.msg.textContent = msg?.text ?? ''
     hud.msg.className = `gp-d-msg ${msg ? `is-visible ${msg.cls}` : ''}`
+
+    this.feed = this.feed.filter((f) => f.until > sim.time).slice(-3)
+    const feedText = this.feed.map((f) => esc(f.text)).join('<br>')
+    if (feedText !== this.feedText) {
+      hud.feed.innerHTML = feedText
+      this.feedText = feedText
+    }
+  }
+
+  updateTower() {
+    const sim = this.sim
+    if (sim.time - (this.towerAt ?? -1) < 0.15) return // ~7 updates a second is plenty
+    this.towerAt = sim.time
+    const order = sim.standings()
+    const leader = order[0]
+    const pos = order.indexOf(this.me) + 1
+    if (this.hud.pos) this.hud.pos.textContent = `${pos}/${order.length}`
+    const rows = order.map((e, i) => {
+      const gap =
+        sim.phase === 'lights'
+          ? i === 0
+            ? 'POLE'
+            : ''
+          : sim.gapText(e, leader)
+      return `<li class='${e.isPlayer ? 'is-me' : ''}${e.car.spin ? ' is-spin' : ''}'>
+        <span class='p'>${i + 1}</span><i style='background:${e.team.colour}'></i>
+        <span class='c'>${e.driver.code}</span><span class='g'>${gap}</span></li>`
+    })
+    const html = rows.join('')
+    if (html !== this.towerKey) {
+      this.hud.tower.innerHTML = html
+      this.towerKey = html
+    }
+  }
+
+  showResults() {
+    this.resultsShown = true
+    const sim = this.sim
+    const results = sim.results()
+    const winner = results[0]?.entry
+    let fastest = null
+    for (const r of results)
+      if (r.best != null && (!fastest || r.best < fastest.best)) fastest = r
+    const rows = results
+      .map((r) => {
+        const e = r.entry
+        let time
+        if (r.pos === 1) time = formatTime(e.finishTime)
+        else if (!e.finished) time = 'DNF'
+        else if (r.laps < winner.timer.laps.length)
+          time = `+${winner.timer.laps.length - r.laps} lap${winner.timer.laps.length - r.laps > 1 ? 's' : ''}`
+        else time = `+${(e.finishTime - winner.finishTime).toFixed(3)}`
+        const gained = e.grid - r.pos
+        const delta =
+          gained > 0
+            ? `<em class='up'>▲${gained}</em>`
+            : gained < 0
+              ? `<em class='down'>▼${-gained}</em>`
+              : '<em>-</em>'
+        return `<tr class='${e.isPlayer ? 'is-me' : ''}'>
+          <td class='p'>${r.pos}</td>
+          <td><i style='background:${e.team.colour}'></i>${esc(e.driver.name)}</td>
+          <td class='t'>${esc(e.team.name)}</td>
+          <td class='n'>${time}</td>
+          <td class='n${fastest === r ? ' fl' : ''}'>${formatTime(r.best)}</td>
+          <td class='n'>${e.grid} ${delta}</td>
+          <td class='n pts'>${r.points || ''}</td>
+        </tr>`
+      })
+      .join('')
+    this.hud.results.innerHTML = `
+      <div class='gp-d-results-card'>
+        <h2>${esc(this.track.name)} <span>Race result</span></h2>
+        <table>
+          <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Grid</th><th>Pts</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <p class='gp-d-results-foot'>
+          ${fastest ? `Fastest lap: <b>${esc(fastest.entry.driver.name)}</b> ${formatTime(fastest.best)} · ` : ''}
+          Points: ${POINTS.join('-')} · <kbd>R</kbd> race again · <kbd>Esc</kbd> editor
+        </p>
+      </div>`
+    this.hud.results.classList.add('is-visible')
   }
 
   buildMinimap() {
@@ -514,13 +684,17 @@ export class TestDrive {
     const { s, ox, oy } = this.mapXf
     ctx.clearRect(0, 0, c.width, c.height)
     ctx.drawImage(this.mapBase, 0, 0)
-    ctx.beginPath()
-    ctx.arc(ox + this.car.x * s, oy + this.car.y * s, 5, 0, Math.PI * 2)
-    ctx.fillStyle = this.team.colour
-    ctx.fill()
-    ctx.lineWidth = 2
-    ctx.strokeStyle = '#fff'
-    ctx.stroke()
+    const dot = (e, r) => {
+      ctx.beginPath()
+      ctx.arc(ox + e.car.x * s, oy + e.car.y * s, r, 0, Math.PI * 2)
+      ctx.fillStyle = e.team.colour
+      ctx.fill()
+      ctx.lineWidth = e.isPlayer ? 2 : 1
+      ctx.strokeStyle = e.isPlayer ? '#fff' : 'rgba(0,0,0,0.7)'
+      ctx.stroke()
+    }
+    for (const e of this.sim.entries) if (!e.isPlayer) dot(e, 3)
+    dot(this.me, 5.5) // you, on top
   }
 }
 

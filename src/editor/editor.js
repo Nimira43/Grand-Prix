@@ -11,12 +11,23 @@ import { analyseTrack } from '../track/analyse.js'
 import { drawGrass, drawPieces, drawCar, COLOURS } from '../track/render.js'
 import { DRIVERS, TEAMS } from '../data/grid.js'
 import * as store from '../track/storage.js'
+import { DIFFICULTY } from '../race/ai.js'
 
 const ZOOMS = [12, 16, 20, 24, 32, 40, 48, 64]
 const DEFAULT_ZOOM = 4 
 const PAN_MARGIN = 160 
 const UNDO_LIMIT = 100
 const DRIVER_KEY = 'grand-prix.testDriver'
+const DIFFICULTY_KEY = 'grand-prix.difficulty'
+
+function loadDifficulty() {
+  try {
+    const d = localStorage.getItem(DIFFICULTY_KEY)
+    return DIFFICULTY[d] ? d : 'normal'
+  } catch {
+    return 'normal'
+  }
+}
 
 function loadDriverIndex() {
   try {
@@ -39,9 +50,10 @@ const esc = (s) =>
 export class Editor {
   constructor(root) {
     this.root = root
-    this.active = true
+    this.active = true 
     this.onTestDrive = null 
     this.driverIndex = loadDriverIndex()
+    this.difficulty = loadDifficulty()
     this.track = store.loadDraft() ?? store.exampleTrack()
     this.tool = 'straight' 
     this.rot = 0
@@ -144,16 +156,24 @@ export class Editor {
               <h3>Controls</h3>
               <p><b>Left drag</b> paint · <b>Right drag</b> erase</p>
               <p><b>Middle drag</b> or <b>Space + drag</b> pan · <b>Wheel</b> zoom</p>
-              <p><kbd>1</kbd>–<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> test drive</p>
+              <p><kbd>1</kbd>–<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice</p>
               <p>The start straight sets the racing direction: cars race towards the chequered line.</p>
             </section>
 
             <section class='gp-testdrive'>
-              <h3>Test drive</h3>
+              <h3>Drive</h3>
               <select id='gp-driver' title='Choose whose seat you take'>
                 ${DRIVERS.map((d, i) => `<option value='${i}'>${esc(d.name)} (${esc(TEAMS[d.team].name)})</option>`).join('')}
               </select>
-              <button class='gp-test' data-action='test' id='gp-test' disabled>▶ Test drive <kbd>T</kbd></button>
+              <select id='gp-difficulty' title='How quick the other 21 drivers are'>
+                ${Object.entries(DIFFICULTY)
+                  .map(
+                    ([k, d]) => `<option value='${k}'>AI: ${d.label}</option>`,
+                  )
+                  .join('')}
+              </select>
+              <button class='gp-test' data-action='race' id='gp-test' disabled>🏁 Race the field <kbd>T</kbd></button>
+              <button class='gp-test gp-test--alt' data-action='practice' id='gp-practice' disabled>Solo practice <kbd>⇧T</kbd></button>
             </section>
           </aside>
 
@@ -192,9 +212,12 @@ export class Editor {
       importInput: $('#gp-import'),
       toast: $('#gp-toast'),
       driver: $('#gp-driver'),
+      difficulty: $('#gp-difficulty'),
       test: $('#gp-test'),
+      practice: $('#gp-practice'),
     }
     this.el.driver.value = String(this.driverIndex)
+    this.el.difficulty.value = this.difficulty
     this.ctx = this.el.canvas.getContext('2d')
   }
 
@@ -297,6 +320,13 @@ export class Editor {
       } catch {}
       this.el.driver.blur()
     })
+    this.el.difficulty.addEventListener('change', () => {
+      this.difficulty = this.el.difficulty.value
+      try {
+        localStorage.setItem(DIFFICULTY_KEY, this.difficulty)
+      } catch {}
+      this.el.difficulty.blur()
+    })
 
     name.addEventListener('input', () => {
       this.track.name = name.value.trim() || 'Untitled Circuit'
@@ -390,8 +420,10 @@ export class Editor {
         return this.zoomAt(this.zoom - 1)
       case 'fit':
         return this.fit()
-      case 'test':
-        return this.startTestDrive()
+      case 'race':
+        return this.startTestDrive('race')
+      case 'practice':
+        return this.startTestDrive('practice')
     }
   }
 
@@ -476,7 +508,7 @@ export class Editor {
             this.toggleOverlay('cars')
             break
           case 't':
-            this.startTestDrive()
+            this.startTestDrive(e.shiftKey ? 'practice' : 'race')
             break
           default:
             return
@@ -615,7 +647,6 @@ export class Editor {
     }
   }
 
-
   trackChanged({ redraw = true, autosave = true } = {}) {
     this.analysis = analyseTrack(this.track)
     if (redraw) this.trackCanvasKey = ''
@@ -708,7 +739,7 @@ export class Editor {
     )
   }
 
-  startTestDrive() {
+  startTestDrive(mode = 'race') {
     if (!this.analysis.ok)
       return this.toast('Finish the circuit before driving it.', 'error')
     this.stroke = null
@@ -717,6 +748,8 @@ export class Editor {
     this.onTestDrive?.({
       track: this.track.clone(),
       driverIndex: this.driverIndex,
+      mode,
+      difficulty: this.difficulty,
     })
   }
 
@@ -773,8 +806,12 @@ export class Editor {
   renderStatus() {
     const a = this.analysis
     this.el.test.disabled = !a.ok
+    this.el.practice.disabled = !a.ok
     this.el.test.title = a.ok
-      ? 'Drive this circuit (T)'
+      ? 'Race all 22 cars on this circuit (T)'
+      : 'Finish the circuit first'
+    this.el.practice.title = a.ok
+      ? 'Just you, unlimited laps (Shift+T)'
       : 'Finish the circuit first'
     if (a.ok) {
       const l = a.loop
@@ -1034,6 +1071,7 @@ export class Editor {
       ctx.strokeStyle = `rgba(255, 70, 70, ${0.6 + 0.4 * pulse})`
       ctx.lineWidth = Math.max(2, T * 0.07)
       ctx.stroke()
+
       ctx.beginPath()
       ctx.moveTo(x + d.dx * r * 0.2, y + d.dy * r * 0.2)
       ctx.lineTo(x + d.dx * r * 1.6, y + d.dy * r * 1.6)
