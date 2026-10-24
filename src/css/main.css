@@ -990,3 +990,40 @@ kbd {
 .is-race .gp-d-lap b {
   font-size: 24px;
 }
+
+.gp-d-assist {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-top: 2px;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #4a505a;
+  border: 1px solid #2a2f38;
+}
+
+.gp-d-assist.is-armed {
+  color: #a08a3a;
+  border-color: #5a4c1c;
+}
+
+.gp-d-assist.is-on {
+  color: #111;
+  background: var(--amber);
+  border-color: var(--amber);
+  box-shadow: 0 0 10px rgba(255, 214, 0, 0.6);
+}
+
+.gp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px;
+  cursor: pointer;
+}
+
+.gp-check input {
+  accent-color: var(--red);
+}

@@ -11,6 +11,7 @@ import {
 } from './ai.js'
 import { resolveCollisions } from './collisions.js'
 import { LapTimer } from './laps.js'
+import { applyBrakeAssist } from './assists.js'
 
 const LIGHTS_ON = 0.6
 const LIGHT_GAP = 1
@@ -37,6 +38,7 @@ export class RaceSim {
     difficulty = 'normal',
     seed,
     seats,
+    brakeAssist = 'off',
   }) {
     this.loop = loop
     this.surface = surface
@@ -50,6 +52,7 @@ export class RaceSim {
       loop.checkpoints[0].y,
     )
     this.difficulty = DIFFICULTY[difficulty]?.pace ?? 1
+    this.brakeAssist = brakeAssist
     this.time = 0
     this.phase = 'lights'
     this.lightsOutAt = LIGHTS_ON + LIGHT_GAP * 5 + 0.2 + this.rng() * 2.3
@@ -167,8 +170,16 @@ export class RaceSim {
         this.stepSpin(car, dt)
       } else {
         let input
-        if (e.isPlayer) input = playerInput
-        else {
+        if (e.isPlayer) {
+          const assisted = applyBrakeAssist(
+            e,
+            playerInput,
+            this.line,
+            this.brakeAssist,
+          )
+          input = assisted.input
+          e.assistActive = assisted.active
+        } else {
           const ctx = {
             time: this.time,
             raceTime: this.raceTime,
@@ -239,6 +250,7 @@ export class RaceSim {
     this.contacts++
     if (impact > 1) this.hardContacts = (this.hardContacts ?? 0) + 1
     if (impact < 1.8) return
+
     for (const car of [a, b]) {
       const e = this.entries.find((x) => x.car === car)
       if (!e || e.isPlayer) continue
@@ -257,6 +269,7 @@ export class RaceSim {
     e.lastKey = key
     e.lastCross = this.time
     if (gate !== 0 || !this.field || e.finished) return
+
     const done = t.laps.length >= this.laps
     if (done || this.flagTime != null) {
       if (this.flagTime == null) {

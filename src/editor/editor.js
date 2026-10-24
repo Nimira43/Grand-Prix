@@ -12,13 +12,24 @@ import { drawGrass, drawPieces, drawCar, COLOURS } from '../track/render.js'
 import { DRIVERS, TEAMS } from '../data/grid.js'
 import * as store from '../track/storage.js'
 import { DIFFICULTY } from '../race/ai.js'
+import { BRAKE_ASSIST } from '../race/assists.js'
 
 const ZOOMS = [12, 16, 20, 24, 32, 40, 48, 64]
-const DEFAULT_ZOOM = 4 
-const PAN_MARGIN = 160 
+const DEFAULT_ZOOM = 4
+const PAN_MARGIN = 160
 const UNDO_LIMIT = 100
 const DRIVER_KEY = 'grand-prix.testDriver'
 const DIFFICULTY_KEY = 'grand-prix.difficulty'
+const ASSISTS_KEY = 'grand-prix.assists'
+
+function loadAssists() {
+  try {
+    const a = JSON.parse(localStorage.getItem(ASSISTS_KEY) || '{}')
+    return { brake: BRAKE_ASSIST[a.brake] ? a.brake : 'off', line: !!a.line }
+  } catch {
+    return { brake: 'off', line: false }
+  }
+}
 
 function loadDifficulty() {
   try {
@@ -50,22 +61,23 @@ const esc = (s) =>
 export class Editor {
   constructor(root) {
     this.root = root
-    this.active = true 
-    this.onTestDrive = null 
+    this.active = true
+    this.onTestDrive = null
     this.driverIndex = loadDriverIndex()
     this.difficulty = loadDifficulty()
+    this.assists = loadAssists()
     this.track = store.loadDraft() ?? store.exampleTrack()
-    this.tool = 'straight' 
+    this.tool = 'straight'
     this.rot = 0
     this.mirror = false
     this.zoom = DEFAULT_ZOOM
     this.cam = { x: 0, y: 0 }
-    this.hover = null 
+    this.hover = null
     this.overlays = { grid: true, line: true, checkpoints: false, cars: true }
     this.undoStack = []
     this.redoStack = []
-    this.stroke = null 
-    this.pan = null 
+    this.stroke = null
+    this.pan = null
     this.spaceHeld = false
     this.trackCanvas = document.createElement('canvas')
     this.trackCanvasKey = ''
@@ -145,7 +157,7 @@ export class Editor {
                 <label><input type='checkbox' data-overlay='cars' /> Cars on the grid <kbd>V</kbd></label>
               </div>
               <div class='gp-zoom'>
-                <button data-action='zoom-out' title='Zoom out (−)'>−</button>
+                <button data-action='zoom-out' title='Zoom out (-)'>-</button>
                 <span id='gp-zoom-label'></span>
                 <button data-action='zoom-in' title='Zoom in (+)'>+</button>
                 <button data-action='fit' title='Fit map (0)'>Fit</button>
@@ -156,7 +168,7 @@ export class Editor {
               <h3>Controls</h3>
               <p><b>Left drag</b> paint · <b>Right drag</b> erase</p>
               <p><b>Middle drag</b> or <b>Space + drag</b> pan · <b>Wheel</b> zoom</p>
-              <p><kbd>1</kbd>–<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice</p>
+              <p><kbd>1</kbd>-<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice</p>
               <p>The start straight sets the racing direction: cars race towards the chequered line.</p>
             </section>
 
@@ -172,6 +184,17 @@ export class Editor {
                   )
                   .join('')}
               </select>
+              <select id='gp-brake-assist' title='Adds braking for you when you're too fast for a corner'>
+                ${Object.entries(BRAKE_ASSIST)
+                  .map(
+                    ([k, a]) =>
+                      `<option value='${k}'>Brake assist: ${a.label}</option>`,
+                  )
+                  .join('')}
+              </select>
+              <label class='gp-check' title='Racing line in green (flat out), amber (lift) and red (brake)'>
+                <input type='checkbox' id='gp-line' /> Braking line
+              </label>
               <button class='gp-test' data-action='race' id='gp-test' disabled>🏁 Race the field <kbd>T</kbd></button>
               <button class='gp-test gp-test--alt' data-action='practice' id='gp-practice' disabled>Solo practice <kbd>⇧T</kbd></button>
             </section>
@@ -215,9 +238,13 @@ export class Editor {
       difficulty: $('#gp-difficulty'),
       test: $('#gp-test'),
       practice: $('#gp-practice'),
+      brakeAssist: $('#gp-brake-assist'),
+      line: $('#gp-line'),
     }
     this.el.driver.value = String(this.driverIndex)
     this.el.difficulty.value = this.difficulty
+    this.el.brakeAssist.value = this.assists.brake
+    this.el.line.checked = this.assists.line
     this.ctx = this.el.canvas.getContext('2d')
   }
 
@@ -319,6 +346,14 @@ export class Editor {
         localStorage.setItem(DRIVER_KEY, String(this.driverIndex))
       } catch {}
       this.el.driver.blur()
+    })
+    this.el.brakeAssist.addEventListener('change', () => {
+      this.setAssists({ ...this.assists, brake: this.el.brakeAssist.value })
+      this.el.brakeAssist.blur()
+    })
+    this.el.line.addEventListener('change', () => {
+      this.setAssists({ ...this.assists, line: this.el.line.checked })
+      this.el.line.blur()
     })
     this.el.difficulty.addEventListener('change', () => {
       this.difficulty = this.el.difficulty.value
@@ -739,6 +774,18 @@ export class Editor {
     )
   }
 
+  setAssists(assists) {
+    this.assists = {
+      brake: BRAKE_ASSIST[assists.brake] ? assists.brake : 'off',
+      line: !!assists.line,
+    }
+    this.el.brakeAssist.value = this.assists.brake
+    this.el.line.checked = this.assists.line
+    try {
+      localStorage.setItem(ASSISTS_KEY, JSON.stringify(this.assists))
+    } catch {}
+  }
+
   startTestDrive(mode = 'race') {
     if (!this.analysis.ok)
       return this.toast('Finish the circuit before driving it.', 'error')
@@ -750,6 +797,7 @@ export class Editor {
       driverIndex: this.driverIndex,
       mode,
       difficulty: this.difficulty,
+      assists: { ...this.assists },
     })
   }
 
@@ -870,7 +918,7 @@ export class Editor {
     const mapW = this.track.cols * this.T
     const mapH = this.track.rows * this.T
     const clampAxis = (v, map, view) => {
-      if (map + PAN_MARGIN * 2 <= view) return (map - view) / 2 
+      if (map + PAN_MARGIN * 2 <= view) return (map - view) / 2
       return Math.max(-PAN_MARGIN, Math.min(map + PAN_MARGIN - view, v))
     }
     this.cam.x = clampAxis(this.cam.x, mapW, this.view.w)
@@ -990,7 +1038,7 @@ export class Editor {
     ctx.strokeStyle = 'rgba(255, 214, 0, 0.85)'
     ctx.lineWidth = Math.max(1.5, T * 0.04)
     ctx.setLineDash([T * 0.25, T * 0.18])
-    ctx.lineDashOffset = -(time / 40) % (T * 0.43) 
+    ctx.lineDashOffset = -(time / 40) % (T * 0.43)
     ctx.stroke()
     ctx.setLineDash([])
 
@@ -1071,7 +1119,6 @@ export class Editor {
       ctx.strokeStyle = `rgba(255, 70, 70, ${0.6 + 0.4 * pulse})`
       ctx.lineWidth = Math.max(2, T * 0.07)
       ctx.stroke()
-
       ctx.beginPath()
       ctx.moveTo(x + d.dx * r * 0.2, y + d.dy * r * 0.2)
       ctx.lineTo(x + d.dx * r * 1.6, y + d.dy * r * 1.6)

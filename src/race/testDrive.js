@@ -5,9 +5,10 @@ import { buildSurface } from './surface.js'
 import { speedKmh } from './carPhysics.js'
 import { formatTime } from './laps.js'
 import { RaceSim } from './raceSim.js'
+import { BRAKE_ASSIST, brakingLine, LINE_COLOURS } from './assists.js'
 
 const ZOOM_STEPS = [9, 8.25, 7.5, 6.75, 6, 5.5, 5, 4.5]
-const DEFAULT_ZOOM = 0 // Level 1
+const DEFAULT_ZOOM = 0
 const ZOOM_KEY = 'grand-prix.raceZoomLevel'
 const STEP = 1 / 120
 const MARGIN = 2
@@ -47,6 +48,7 @@ export class TestDrive {
     driverIndex = 0,
     mode = 'race',
     difficulty = 'normal',
+    assists = {},
     onExit,
   }) {
     this.track = track
@@ -58,6 +60,11 @@ export class TestDrive {
     this.team = TEAMS[this.driver.team]
     this.mode = mode
     this.difficulty = difficulty
+    this.assists = {
+      brake: BRAKE_ASSIST[assists.brake] ? assists.brake : 'off',
+      line: !!assists.line,
+    }
+    this.onAssistsChange = null
     this.onExit = onExit
     this.surface = buildSurface(track)
     this.keys = { throttle: false, brake: false, left: false, right: false }
@@ -113,10 +120,11 @@ export class TestDrive {
         <div class='gp-d-revs' data-hud='revs'>${'<i></i>'.repeat(15)}</div>
         <div class='gp-d-speed'><b data-hud='speed'>0</b><span>km/h</span></div>
         <div class='gp-d-gear'><span>Gear</span><b data-hud='gear'>N</b></div>
+        <div class='gp-d-assist' data-hud='assist'>BRAKE ASSIST</div>
       </div>
 
       <div class='gp-d-help'>
-        <kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor
+        <kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>-</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor
       </div>
 
       <div class='gp-d-results' data-hud='results'></div>`
@@ -149,6 +157,8 @@ export class TestDrive {
       else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
         this.setZoom(this.zoom - 1)
       else if (e.code === 'Space') this.paused = !this.paused
+      else if (e.code === 'KeyB') this.cycleBrakeAssist()
+      else if (e.code === 'KeyL') this.toggleLine()
       else return
       e.preventDefault()
     }
@@ -183,8 +193,14 @@ export class TestDrive {
       field: this.isRace,
       laps: this.track.laps,
       difficulty: this.difficulty,
+      brakeAssist: this.assists.brake,
     })
     this.me = this.sim.player
+    this.lineRuns = brakingLine(
+      this.me.profile,
+      this.sim.line,
+      this.me.stats.top,
+    )
     this.acc = 0
     this.particles = []
     this.paused = false
@@ -329,6 +345,42 @@ export class TestDrive {
     this.updateHud()
   }
 
+  cycleBrakeAssist() {
+    const levels = Object.keys(BRAKE_ASSIST)
+    const next =
+      levels[(levels.indexOf(this.assists.brake) + 1) % levels.length]
+    this.assists.brake = next
+    this.sim.brakeAssist = next
+    this.flash(`BRAKE ASSIST: ${BRAKE_ASSIST[next].label.toUpperCase()}`, 1.2)
+    this.onAssistsChange?.({ ...this.assists })
+  }
+
+  toggleLine() {
+    this.assists.line = !this.assists.line
+    this.flash(`BRAKING LINE: ${this.assists.line ? 'ON' : 'OFF'}`, 1.2)
+    this.onAssistsChange?.({ ...this.assists })
+  }
+
+  drawBrakingLine(ctx, T) {
+    const pts = this.sim.line.points
+    const n = pts.length
+    ctx.save()
+    ctx.lineWidth = Math.max(3, T * 0.07)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    for (const run of this.lineRuns) {
+      ctx.beginPath()
+      for (let i = run.from; i <= run.to; i++) {
+        const [x, y] = pts[i % n]
+        if (i === run.from) ctx.moveTo(x * T, y * T)
+        else ctx.lineTo(x * T, y * T)
+      }
+      ctx.strokeStyle = LINE_COLOURS[run.kind]
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+
   setZoom(index) {
     const next = Math.max(0, Math.min(ZOOM_STEPS.length - 1, index))
     if (next === this.zoom) return
@@ -400,6 +452,7 @@ export class TestDrive {
         ctx.drawImage(chunk, ox + i * CHUNK, oy + j * CHUNK, CHUNK, CHUNK)
       }
     }
+
     const bytes = Math.ceil(CHUNK * scale) ** 2 * 4
     const keep = Math.max(
       (i1 - i0 + 3) * (j1 - j0 + 3),
@@ -438,6 +491,7 @@ export class TestDrive {
     )
 
     this.drawWorld(ctx, T)
+    if (this.assists.line) this.drawBrakingLine(ctx, T)
 
     for (const p of this.particles) {
       ctx.globalAlpha = Math.max(0, p.life / p.max)
@@ -510,6 +564,11 @@ export class TestDrive {
     const hud = this.hud
     hud.speed.textContent = speedKmh(car)
     hud.gear.textContent = sim.phase === 'lights' ? 'N' : car.gear
+    hud.assist.className = `gp-d-assist${this.assists.brake !== 'off' ? ' is-armed' : ''}${me.assistActive ? ' is-on' : ''}`
+    hud.assist.textContent =
+      this.assists.brake === 'off'
+        ? 'BRAKE ASSIST OFF'
+        : `BRAKE ASSIST ${this.assists.brake.toUpperCase()}`
     if (this.isRace) {
       const lap = t ? Math.min(sim.laps, Math.max(1, t.laps.length + 1)) : 1
       hud.lap.textContent = `${lap}/${sim.laps}`
@@ -531,7 +590,6 @@ export class TestDrive {
       sim.phase === 'lights' ? 0 : Math.round(((car.rpm - 9000) / 6000) * 15)
     this.revLeds.forEach((led, i) => led.classList.toggle('on', i < lit))
 
-    // Start lights: one pod per second, then all out together.
     const lights = sim.lightsLit
     if (lights >= 0) {
       this.lightPods.forEach((pod, i) =>
@@ -562,7 +620,7 @@ export class TestDrive {
 
   updateTower() {
     const sim = this.sim
-    if (sim.time - (this.towerAt ?? -1) < 0.15) return // ~7 updates a second is plenty
+    if (sim.time - (this.towerAt ?? -1) < 0.15) return
     this.towerAt = sim.time
     const order = sim.standings()
     const leader = order[0]
@@ -667,6 +725,7 @@ export class TestDrive {
     ctx.strokeStyle = '#e9ecf1'
     ctx.lineWidth = 2.5
     ctx.stroke()
+
     const f = this.loop.checkpoints[0]
     ctx.strokeStyle = '#e10600'
     ctx.lineWidth = 3
@@ -694,7 +753,7 @@ export class TestDrive {
       ctx.stroke()
     }
     for (const e of this.sim.entries) if (!e.isPlayer) dot(e, 3)
-    dot(this.me, 5.5) // you, on top
+    dot(this.me, 5.5)
   }
 }
 
