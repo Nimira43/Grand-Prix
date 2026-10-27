@@ -87,6 +87,8 @@ kbd {
   background: var(--bg);
 }
 
+/* ---------- layout ---------- */
+
 .gp-editor {
   display: grid;
   grid-template-rows: auto 1fr;
@@ -186,6 +188,8 @@ kbd {
   grid-template-columns: 272px 1fr;
   min-height: 0;
 }
+
+/* ---------- side panel ---------- */
 
 .gp-side {
   background: var(--panel);
@@ -357,6 +361,8 @@ kbd {
   font-weight: 600;
 }
 
+/* ---------- map ---------- */
+
 .gp-stage {
   position: relative;
   min-width: 0;
@@ -384,6 +390,8 @@ kbd {
 .gp-hud:empty {
   display: none;
 }
+
+/* ---------- dialog & toast ---------- */
 
 .gp-dialog {
   background: var(--panel);
@@ -488,6 +496,8 @@ kbd {
   }
 }
 
+/* ---------- test drive selector (editor side panel) ---------- */
+
 .gp-testdrive {
   margin-top: auto;
   display: grid;
@@ -518,6 +528,8 @@ kbd {
   background: #ff1a14;
   border-color: #ff1a14;
 }
+
+/* ---------- test drive screen ---------- */
 
 .gp-drive {
   position: fixed;
@@ -762,6 +774,8 @@ kbd {
   white-space: nowrap;
 }
 
+/* ---------- race: timing tower, feed, results ---------- */
+
 .gp-d-left {
   position: absolute;
   top: 16px;
@@ -991,6 +1005,8 @@ kbd {
   font-size: 24px;
 }
 
+/* ---------- brake assist light ---------- */
+
 .gp-d-assist {
   grid-column: 1 / -1;
   justify-self: end;
@@ -1026,4 +1042,39 @@ kbd {
 
 .gp-check input {
   accent-color: var(--red);
+}
+
+/* ---------- TV mode ---------- */
+
+.gp-d-tv {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 14px;
+  border-radius: 4px;
+  background: rgba(11, 13, 16, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 2px solid var(--red);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* the start lights sit just below the TV badge */
+.is-tv .gp-d-lights {
+  top: 56px;
+}
+
+.is-tv .gp-d-assist {
+  display: none;
+}
+
+.is-tv .gp-d-tower li {
+  cursor: pointer;
+}
+
+.is-tv .gp-d-tower li:hover {
+  background: rgba(255, 255, 255, 0.07);
 }

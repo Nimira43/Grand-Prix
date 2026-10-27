@@ -81,12 +81,16 @@ export class TestDrive {
   }
 
   get isRace() {
-    return this.mode === 'race'
+    return this.mode === 'race' || this.mode === 'tv'
+  }
+
+  get isTV() {
+    return this.mode === 'tv'
   }
 
   buildDom() {
     const root = document.createElement('div')
-    root.className = `gp-drive ${this.isRace ? 'is-race' : 'is-practice'}`
+    root.className = `gp-drive ${this.isRace ? 'is-race' : 'is-practice'}${this.isTV ? ' is-tv' : ''}`
     root.innerHTML = `
       <canvas class='gp-drive-view'></canvas>
 
@@ -112,9 +116,8 @@ export class TestDrive {
 
       <canvas class='gp-d-map' width='240' height='170'></canvas>
 
-      <div class='gp-d-driver' style='--team:${this.team.colour}--accent:${this.team.accent}'>
-        <b>${esc(this.driver.name.toUpperCase())}</b><span>${esc(this.team.name)}</span>
-      </div>
+      <div class='gp-d-driver' data-hud='plate'></div>
+      ${this.isTV ? "<div class='gp-d-tv' data-hud='tv'></div>" : ''}
 
       <div class='gp-d-dash'>
         <div class='gp-d-revs' data-hud='revs'>${'<i></i>'.repeat(15)}</div>
@@ -124,7 +127,11 @@ export class TestDrive {
       </div>
 
       <div class='gp-d-help'>
-        <kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>-</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor
+        ${
+          this.isTV
+            ? '<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · <kbd>R</kbd> restart · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+            : '<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+        }
       </div>
 
       <div class='gp-d-results' data-hud='results'></div>`
@@ -139,11 +146,22 @@ export class TestDrive {
     this.revLeds = [...this.hud.revs.children]
     this.lightPods = [...this.hud.lights.children]
     this.buildMinimap()
-    if (import.meta.env.DEV) window.__testDrive = this
+    if (this.isTV) {
+      this.hud.tower.addEventListener('click', (e) => {
+        const row = e.target.closest('[data-entry]')
+        if (row)
+          this.follow(
+            this.sim.entries.find((x) => x.index === Number(row.dataset.entry)),
+            true,
+          )
+      })
+    }
+    if (import.meta.env.DEV) window.__testDrive = this // handy in the console
   }
 
   bind() {
     this.onKeyDown = (e) => {
+      if (this.isTV) return this.onTVKey(e)
       if (STEER_KEYS[e.code]) {
         this.keys[STEER_KEYS[e.code]] = true
         e.preventDefault()
@@ -189,13 +207,18 @@ export class TestDrive {
     this.sim = new RaceSim({
       loop: this.loop,
       surface: this.surface,
-      playerIndex: this.driverIndex,
+      playerIndex: this.isTV ? null : this.driverIndex,
       field: this.isRace,
       laps: this.track.laps,
       difficulty: this.difficulty,
       brakeAssist: this.assists.brake,
     })
-    this.me = this.sim.player
+    this.me = this.isTV
+      ? this.sim.entries.find((e) => e.index === this.driverIndex)
+      : this.sim.player
+    this.speed = 1
+    this.director = false
+    this.directorAt = 0
     this.lineRuns = brakingLine(
       this.me.profile,
       this.sim.line,
@@ -214,7 +237,89 @@ export class TestDrive {
     this.hud.lights.classList.add('is-visible')
     this.hud.results.classList.remove('is-visible')
     this.hud.results.innerHTML = ''
-    if (this.isRace) this.flash(`GRID: P${this.me.grid}`, 4)
+    this.updatePlate()
+    if (this.isTV)
+      this.flash(
+        `${this.me.driver.name.toUpperCase()} STARTS P${this.me.grid}`,
+        4,
+      )
+    else if (this.isRace) this.flash(`GRID: P${this.me.grid}`, 4)
+  }
+
+  updatePlate() {
+    const { driver, team } = this.me
+    const plate = this.hud.plate
+    plate.style.setProperty('--team', team.colour)
+    plate.style.setProperty('--accent', team.accent)
+    plate.innerHTML = `<b>${esc(driver.name.toUpperCase())}</b><span>${esc(team.name)}</span>`
+  }
+
+  onTVKey(e) {
+    if (e.repeat && e.code !== 'KeyO' && e.code !== 'KeyP') return
+    const order = this.sim.standings()
+    const i = order.indexOf(this.me)
+    if (e.code === 'Escape') this.exit()
+    else if (e.code === 'KeyO') this.follow(order[Math.max(0, i - 1)], true)
+    else if (e.code === 'KeyP')
+      this.follow(order[Math.min(order.length - 1, i + 1)], true)
+    else if (e.code === 'KeyD') {
+      this.director = !this.director
+      this.directorAt = -Infinity
+      this.flash(`DIRECTOR ${this.director ? 'ON' : 'OFF'}`, 1.2)
+    } else if (e.code === 'KeyF') {
+      this.speed = this.speed >= 4 ? 1 : this.speed * 2
+      this.flash(`SPEED ×${this.speed}`, 1)
+    } else if (e.code === 'KeyR') this.reset()
+    else if (e.code === 'Equal' || e.code === 'NumpadAdd')
+      this.setZoom(this.zoom + 1)
+    else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
+      this.setZoom(this.zoom - 1)
+    else if (e.code === 'Space') this.paused = !this.paused
+    else if (e.code === 'KeyL') this.toggleLine()
+    else return
+    e.preventDefault()
+  }
+
+  follow(entry, manual = false) {
+    if (!entry || entry === this.me) return
+    this.me = entry
+    if (manual && this.director) {
+      this.director = false
+      this.flash('DIRECTOR OFF', 1)
+    }
+    this.lineRuns = brakingLine(entry.profile, this.sim.line, entry.stats.top)
+    this.lapsSeen = entry.timer?.laps.length ?? 0
+    this.towerKey = ''
+    this.towerAt = -1
+    this.updatePlate()
+    if (!manual)
+      this.feed.push({
+        text: `CAMERA: ${entry.driver.name.toUpperCase()}`,
+        until: this.sim.time + 2,
+      })
+  }
+
+  runDirector() {
+    if (!this.director || this.sim.phase !== 'race') return
+    const sim = this.sim
+    const order = sim.standings().filter((e) => !e.finished)
+    const spinner = order
+      .slice(0, 12)
+      .find((e) => e.car.spin && e.car.spin.t < 0.1)
+    if (spinner) return this.follow(spinner)
+    if (sim.time - this.directorAt < 7) return
+    this.directorAt = sim.time
+    let best = null
+    let bestScore = Infinity
+    for (let i = 0; i < order.length - 1; i++) {
+      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step
+      const score = gap * (1 + i * 0.08)
+      if (score < bestScore) {
+        bestScore = score
+        best = order[i + 1]
+      }
+    }
+    if (best) this.follow(best)
   }
 
   resize() {
@@ -248,16 +353,24 @@ export class TestDrive {
       else this.feed.push({ text: ev.text, until: sim.time + 3.5 })
     }
 
+    if (this.isTV) this.runDirector()
+
     const t = this.me.timer
     if (t && t.laps.length > this.lapsSeen) {
       this.lapsSeen = t.laps.length
       const best = t.lastLap === t.bestLap
       if (this.me.finished) {
         const pos = sim.finishOrder.indexOf(this.me) + 1
-        this.flash(`CHEQUERED FLAG: P${pos}`, 4, pos === 1 ? 'is-best' : '')
-      } else {
+        const who = this.isTV ? `${this.me.driver.name.toUpperCase()} ` : ''
         this.flash(
-          `${best ? 'BEST LAP' : 'LAP'} ${formatTime(t.lastLap)}`,
+          `${who}CHEQUERED FLAG: P${pos}`,
+          4,
+          pos === 1 ? 'is-best' : '',
+        )
+      } else {
+        const who = this.isTV ? `${this.me.driver.code} ` : ''
+        this.flash(
+          `${who}${best ? 'BEST LAP' : 'LAP'} ${formatTime(t.lastLap)}`,
           2.2,
           best ? 'is-best' : '',
         )
@@ -306,7 +419,7 @@ export class TestDrive {
       if (car.slip > 0.85 && car.speed > 1.5)
         spray(rate(40), 'rgba(220,220,220,0.5)', 0.11, 0.6, 0.7)
       if (car.hitBarrier > 0.25) spray(6, '#222', 0.05, 2.5, 0.4)
-      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3)
+      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3) // bits of carbon fibre
       car.contact = Math.max(0, (car.contact ?? 0) - dt * 4)
     }
 
@@ -331,7 +444,10 @@ export class TestDrive {
     const real = Math.min(0.1, (now - this.last) / 1000)
     this.last = now
     if (!this.paused && this.sim.phase !== 'done') {
-      const speedup = this.me.finished ? AFTER_FLAG_SPEEDUP : 1
+      const speedup = Math.max(
+        this.speed,
+        this.me.finished ? AFTER_FLAG_SPEEDUP : 1,
+      )
       this.acc += real * speedup
       while (this.acc >= STEP) {
         this.tick(STEP)
@@ -520,7 +636,7 @@ export class TestDrive {
     }
     for (const e of visible) {
       const car = e.car
-      if (e.isPlayer && this.isRace) {
+      if (e === this.me && this.isRace) {
         ctx.beginPath()
         ctx.arc(car.x * T, car.y * T, 0.27 * T, 0, Math.PI * 2)
         ctx.fillStyle = 'rgba(255,255,255,0.13)'
@@ -548,7 +664,7 @@ export class TestDrive {
         ctx.lineWidth = 3
         ctx.strokeStyle = 'rgba(0,0,0,0.7)'
         ctx.strokeText(e.driver.code, x, y)
-        ctx.fillStyle = e.isPlayer ? '#ffd600' : '#ffffff'
+        ctx.fillStyle = e === this.me ? '#ffd600' : '#ffffff'
         ctx.fillText(e.driver.code, x, y)
       }
     }
@@ -601,6 +717,13 @@ export class TestDrive {
     }
 
     if (this.isRace) this.updateTower()
+    if (this.isTV) {
+      const tv = `📺 TV · ${this.me.driver.name.toUpperCase()}${this.director ? ' · DIRECTOR' : ''}${this.speed > 1 ? ` · ×${this.speed}` : ''}`
+      if (tv !== this.tvText) {
+        this.hud.tv.textContent = tv
+        this.tvText = tv
+      }
+    }
 
     let msg = null
     if (this.paused) msg = { text: 'PAUSED', cls: '' }
@@ -633,7 +756,7 @@ export class TestDrive {
             ? 'POLE'
             : ''
           : sim.gapText(e, leader)
-      return `<li class='${e.isPlayer ? 'is-me' : ''}${e.car.spin ? ' is-spin' : ''}'>
+      return `<li data-entry='${e.index}' class='${e === this.me ? 'is-me' : ''}${e.car.spin ? ' is-spin' : ''}'>
         <span class='p'>${i + 1}</span><i style='background:${e.team.colour}'></i>
         <span class='c'>${e.driver.code}</span><span class='g'>${gap}</span></li>`
     })
@@ -668,7 +791,7 @@ export class TestDrive {
             : gained < 0
               ? `<em class='down'>▼${-gained}</em>`
               : '<em>-</em>'
-        return `<tr class='${e.isPlayer ? 'is-me' : ''}'>
+        return `<tr class='${e === this.me ? 'is-me' : ''}'>
           <td class='p'>${r.pos}</td>
           <td><i style='background:${e.team.colour}'></i>${esc(e.driver.name)}</td>
           <td class='t'>${esc(e.team.name)}</td>
@@ -725,7 +848,6 @@ export class TestDrive {
     ctx.strokeStyle = '#e9ecf1'
     ctx.lineWidth = 2.5
     ctx.stroke()
-
     const f = this.loop.checkpoints[0]
     ctx.strokeStyle = '#e10600'
     ctx.lineWidth = 3
@@ -748,12 +870,12 @@ export class TestDrive {
       ctx.arc(ox + e.car.x * s, oy + e.car.y * s, r, 0, Math.PI * 2)
       ctx.fillStyle = e.team.colour
       ctx.fill()
-      ctx.lineWidth = e.isPlayer ? 2 : 1
-      ctx.strokeStyle = e.isPlayer ? '#fff' : 'rgba(0,0,0,0.7)'
+      ctx.lineWidth = e === this.me ? 2 : 1
+      ctx.strokeStyle = e === this.me ? '#fff' : 'rgba(0,0,0,0.7)'
       ctx.stroke()
     }
-    for (const e of this.sim.entries) if (!e.isPlayer) dot(e, 3)
-    dot(this.me, 5.5)
+    for (const e of this.sim.entries) if (e !== this.me) dot(e, 3)
+    dot(this.me, 5.5) // you (or your TV pick), on top
   }
 }
 

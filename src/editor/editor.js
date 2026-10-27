@@ -157,7 +157,7 @@ export class Editor {
                 <label><input type='checkbox' data-overlay='cars' /> Cars on the grid <kbd>V</kbd></label>
               </div>
               <div class='gp-zoom'>
-                <button data-action='zoom-out' title='Zoom out (-)'>-</button>
+                <button data-action='zoom-out' title='Zoom out (−)'>−</button>
                 <span id='gp-zoom-label'></span>
                 <button data-action='zoom-in' title='Zoom in (+)'>+</button>
                 <button data-action='fit' title='Fit map (0)'>Fit</button>
@@ -168,13 +168,13 @@ export class Editor {
               <h3>Controls</h3>
               <p><b>Left drag</b> paint · <b>Right drag</b> erase</p>
               <p><b>Middle drag</b> or <b>Space + drag</b> pan · <b>Wheel</b> zoom</p>
-              <p><kbd>1</kbd>-<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice</p>
+              <p><kbd>1</kbd>–<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice · <kbd>W</kbd> watch</p>
               <p>The start straight sets the racing direction: cars race towards the chequered line.</p>
             </section>
 
             <section class='gp-testdrive'>
               <h3>Drive</h3>
-              <select id='gp-driver' title='Choose whose seat you take'>
+              <select id='gp-driver' title='Whose seat you take, or who TV mode follows'>
                 ${DRIVERS.map((d, i) => `<option value='${i}'>${esc(d.name)} (${esc(TEAMS[d.team].name)})</option>`).join('')}
               </select>
               <select id='gp-difficulty' title='How quick the other 21 drivers are'>
@@ -197,6 +197,7 @@ export class Editor {
               </label>
               <button class='gp-test' data-action='race' id='gp-test' disabled>🏁 Race the field <kbd>T</kbd></button>
               <button class='gp-test gp-test--alt' data-action='practice' id='gp-practice' disabled>Solo practice <kbd>⇧T</kbd></button>
+              <button class='gp-test gp-test--alt' data-action='tv' id='gp-tv' disabled>📺 TV mode: watch <kbd>W</kbd></button>
             </section>
           </aside>
 
@@ -238,6 +239,7 @@ export class Editor {
       difficulty: $('#gp-difficulty'),
       test: $('#gp-test'),
       practice: $('#gp-practice'),
+      tv: $('#gp-tv'),
       brakeAssist: $('#gp-brake-assist'),
       line: $('#gp-line'),
     }
@@ -459,6 +461,8 @@ export class Editor {
         return this.startTestDrive('race')
       case 'practice':
         return this.startTestDrive('practice')
+      case 'tv':
+        return this.startTestDrive('tv')
     }
   }
 
@@ -544,6 +548,9 @@ export class Editor {
             break
           case 't':
             this.startTestDrive(e.shiftKey ? 'practice' : 'race')
+            break
+          case 'w':
+            this.startTestDrive('tv')
             break
           default:
             return
@@ -855,6 +862,10 @@ export class Editor {
     const a = this.analysis
     this.el.test.disabled = !a.ok
     this.el.practice.disabled = !a.ok
+    this.el.tv.disabled = !a.ok
+    this.el.tv.title = a.ok
+      ? 'Watch a race following the driver above (W)'
+      : 'Finish the circuit first'
     this.el.test.title = a.ok
       ? 'Race all 22 cars on this circuit (T)'
       : 'Finish the circuit first'
