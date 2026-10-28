@@ -103,6 +103,7 @@ export class TestDrive {
           <div class='gp-d-row'><span>Current</span><b data-hud='current'>-:--.---</b></div>
           <div class='gp-d-row'><span>Last</span><b data-hud='last'>-:--.---</b></div>
           <div class='gp-d-row'><span>Best</span><b data-hud='best'>-:--.---</b></div>
+          ${this.isRace ? "<div class='gp-d-row gp-d-limits'><span>Limits</span><b data-hud='limits'></b></div>" : ''}
         </div>
         ${this.isRace ? "<ol class='gp-d-tower' data-hud='tower'></ol>" : ''}
       </div>
@@ -229,6 +230,7 @@ export class TestDrive {
     this.paused = false
     this.message = null
     this.eventsSeen = 0
+    this.limitsSeen = 0
     this.feed = []
     this.lapsSeen = 0
     this.towerKey = ''
@@ -312,7 +314,7 @@ export class TestDrive {
     let best = null
     let bestScore = Infinity
     for (let i = 0; i < order.length - 1; i++) {
-      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step
+      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step // tiles between them
       const score = gap * (1 + i * 0.08)
       if (score < bestScore) {
         bestScore = score
@@ -353,12 +355,25 @@ export class TestDrive {
       else this.feed.push({ text: ev.text, until: sim.time + 3.5 })
     }
 
+    while (this.limitsSeen < sim.limitEvents.length) {
+      const { entry, verdict } = sim.limitEvents[this.limitsSeen++]
+      if (entry !== this.me || this.isTV) continue
+      const msg = {
+        invalid: ['LAP INVALID: TRACK LIMITS', 'is-warn'],
+        warning: [`TRACK LIMITS: WARNING ${verdict.warnings}/3`, 'is-warn'],
+        final: ['BLACK-AND-WHITE FLAG: FINAL WARNING', 'is-warn'],
+        penalty: [`${verdict.seconds}-SECOND PENALTY: TRACK LIMITS`, 'is-pen'],
+        cut: [`${verdict.seconds}-SECOND PENALTY: CUTTING THE TRACK`, 'is-pen'],
+      }[verdict.kind]
+      if (msg) this.flash(msg[0], 2.6, msg[1])
+    }
+
     if (this.isTV) this.runDirector()
 
     const t = this.me.timer
     if (t && t.laps.length > this.lapsSeen) {
       this.lapsSeen = t.laps.length
-      const best = t.lastLap === t.bestLap
+      const best = t.lastValid && t.lastLap === t.bestLap
       if (this.me.finished) {
         const pos = sim.finishOrder.indexOf(this.me) + 1
         const who = this.isTV ? `${this.me.driver.name.toUpperCase()} ` : ''
@@ -369,10 +384,15 @@ export class TestDrive {
         )
       } else {
         const who = this.isTV ? `${this.me.driver.code} ` : ''
+        const label = !t.lastValid
+          ? 'LAP (INVALID)'
+          : best
+            ? 'BEST LAP'
+            : 'LAP'
         this.flash(
-          `${who}${best ? 'BEST LAP' : 'LAP'} ${formatTime(t.lastLap)}`,
+          `${who}${label} ${formatTime(t.lastLap)}`,
           2.2,
-          best ? 'is-best' : '',
+          best ? 'is-best' : !t.lastValid ? 'is-warn' : '',
         )
       }
     }
@@ -419,7 +439,7 @@ export class TestDrive {
       if (car.slip > 0.85 && car.speed > 1.5)
         spray(rate(40), 'rgba(220,220,220,0.5)', 0.11, 0.6, 0.7)
       if (car.hitBarrier > 0.25) spray(6, '#222', 0.05, 2.5, 0.4)
-      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3) // bits of carbon fibre
+      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3)
       car.contact = Math.max(0, (car.contact ?? 0) - dt * 4)
     }
 
@@ -538,7 +558,6 @@ export class TestDrive {
       this.chunks.clear()
       this.chunkKey = key
     }
-
     const ox = -Math.round(MARGIN * T)
     const oy = ox
     const left = this.cam.x * T - w / 2 - ox
@@ -568,7 +587,6 @@ export class TestDrive {
         ctx.drawImage(chunk, ox + i * CHUNK, oy + j * CHUNK, CHUNK, CHUNK)
       }
     }
-
     const bytes = Math.ceil(CHUNK * scale) ** 2 * 4
     const keep = Math.max(
       (i1 - i0 + 3) * (j1 - j0 + 3),
@@ -699,8 +717,26 @@ export class TestDrive {
     hud.best.textContent = formatTime(t?.bestLap)
     hud.last.classList.toggle(
       'is-best',
-      !!t && t.lastLap != null && t.lastLap === t.bestLap,
+      !!t && t.lastLap != null && t.lastValid && t.lastLap === t.bestLap,
     )
+    hud.last.classList.toggle(
+      'is-invalid',
+      !!t && t.lastLap != null && !t.lastValid,
+    )
+    hud.current.classList.toggle(
+      'is-invalid',
+      !!t && t.invalid && !me.finished,
+    )
+    if (hud.limits) {
+      const lim = me.limits
+      const pips =
+        '●'.repeat(lim.warnings) + '○'.repeat(Math.max(0, 3 - lim.warnings))
+      const text = `${pips}${lim.penalty ? ` +${lim.penalty}s` : ''}`
+      if (text !== hud.limits.dataset.text) {
+        hud.limits.dataset.text = text
+        hud.limits.innerHTML = `<span class='pips${lim.warnings >= 3 ? ' is-final' : ''}'>${pips}</span>${lim.penalty ? ` <em>+${lim.penalty}s</em>` : ''}`
+      }
+    }
 
     const lit =
       sim.phase === 'lights' ? 0 : Math.round(((car.rpm - 9000) / 6000) * 15)
@@ -727,8 +763,6 @@ export class TestDrive {
 
     let msg = null
     if (this.paused) msg = { text: 'PAUSED', cls: '' }
-    else if (t && sim.time - t.missed < 1.5)
-      msg = { text: 'CHECKPOINT MISSED: GO BACK', cls: 'is-warn' }
     else if (this.message && sim.time < this.message.until) msg = this.message
     hud.msg.textContent = msg?.text ?? ''
     hud.msg.className = `gp-d-msg ${msg ? `is-visible ${msg.cls}` : ''}`
@@ -758,7 +792,7 @@ export class TestDrive {
           : sim.gapText(e, leader)
       return `<li data-entry='${e.index}' class='${e === this.me ? 'is-me' : ''}${e.car.spin ? ' is-spin' : ''}'>
         <span class='p'>${i + 1}</span><i style='background:${e.team.colour}'></i>
-        <span class='c'>${e.driver.code}</span><span class='g'>${gap}</span></li>`
+        <span class='c'>${e.driver.code}${e.limits.penalty ? `<em class='pen'>+${e.limits.penalty}s</em>` : ''}</span><span class='g'>${gap}</span></li>`
     })
     const html = rows.join('')
     if (html !== this.towerKey) {
@@ -772,6 +806,7 @@ export class TestDrive {
     const sim = this.sim
     const results = sim.results()
     const winner = results[0]?.entry
+    const winnerTime = results[0]?.time
     let fastest = null
     for (const r of results)
       if (r.best != null && (!fastest || r.best < fastest.best)) fastest = r
@@ -779,11 +814,11 @@ export class TestDrive {
       .map((r) => {
         const e = r.entry
         let time
-        if (r.pos === 1) time = formatTime(e.finishTime)
+        if (r.pos === 1) time = formatTime(r.time)
         else if (!e.finished) time = 'DNF'
         else if (r.laps < winner.timer.laps.length)
           time = `+${winner.timer.laps.length - r.laps} lap${winner.timer.laps.length - r.laps > 1 ? 's' : ''}`
-        else time = `+${(e.finishTime - winner.finishTime).toFixed(3)}`
+        else time = `+${(r.time - winnerTime).toFixed(3)}`
         const gained = e.grid - r.pos
         const delta =
           gained > 0
@@ -796,6 +831,7 @@ export class TestDrive {
           <td><i style='background:${e.team.colour}'></i>${esc(e.driver.name)}</td>
           <td class='t'>${esc(e.team.name)}</td>
           <td class='n'>${time}</td>
+          <td class='n pen'>${r.penalty ? `+${r.penalty}s` : ''}</td>
           <td class='n${fastest === r ? ' fl' : ''}'>${formatTime(r.best)}</td>
           <td class='n'>${e.grid} ${delta}</td>
           <td class='n pts'>${r.points || ''}</td>
@@ -806,12 +842,12 @@ export class TestDrive {
       <div class='gp-d-results-card'>
         <h2>${esc(this.track.name)} <span>Race result</span></h2>
         <table>
-          <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Grid</th><th>Pts</th></tr></thead>
+          <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Pen</th><th>Best lap</th><th>Grid</th><th>Pts</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <p class='gp-d-results-foot'>
           ${fastest ? `Fastest lap: <b>${esc(fastest.entry.driver.name)}</b> ${formatTime(fastest.best)} · ` : ''}
-          Points: ${POINTS.join('-')} · <kbd>R</kbd> race again · <kbd>Esc</kbd> editor
+          Times include penalties · Points: ${POINTS.join('-')} · <kbd>R</kbd> race again · <kbd>Esc</kbd> editor
         </p>
       </div>`
     this.hud.results.classList.add('is-visible')
@@ -875,7 +911,7 @@ export class TestDrive {
       ctx.stroke()
     }
     for (const e of this.sim.entries) if (e !== this.me) dot(e, 3)
-    dot(this.me, 5.5) // you (or your TV pick), on top
+    dot(this.me, 5.5)
   }
 }
 

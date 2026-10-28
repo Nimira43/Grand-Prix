@@ -32,8 +32,8 @@ export const TEAMS = {
     name: 'Red Bull',
     chassis: 8,
     engine: 'redbullford',
-    colour: '#3671C6',
-    accent: '#FFD200',
+    colour: '#3836c6',
+    accent: '#ddb502',
   },
   racingbulls: {
     name: 'Racing Bulls',

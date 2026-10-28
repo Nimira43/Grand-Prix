@@ -1,4 +1,5 @@
 const GATE_SLACK = 0.6
+const SKIP_WINDOW = 1 / 3
 
 export class LapTimer {
   constructor(loop, startTime = 0) {
@@ -9,17 +10,23 @@ export class LapTimer {
         ay: cp.y - cp.ny * hw,
         bx: cp.x + cp.nx * hw,
         by: cp.y + cp.ny * hw,
-        tx: cp.ny, 
+        tx: cp.ny,
         ty: -cp.nx,
       }
     })
-    this.lap = 0 
+    this.lap = 0
     this.next = 0
     this.lapStart = startTime
     this.lastLap = null
     this.bestLap = null
-    this.laps = [] 
-    this.missed = 0 
+    this.laps = []
+    this.valid = []
+    this.invalid = false
+    this.lastValid = true
+  }
+
+  invalidate() {
+    if (this.lap > 0) this.invalid = true
   }
 
   update(x0, y0, x1, y1, time, dt) {
@@ -27,21 +34,30 @@ export class LapTimer {
       const g = this.gates[k]
       const f = crossing(x0, y0, x1, y1, g)
       if (f == null) continue
+
       if ((x1 - x0) * g.tx + (y1 - y0) * g.ty <= 0) continue
       const t = time - dt + f * dt
       if (k !== this.next) {
-        this.missed = time
-        continue
+        const G = this.gates.length
+        const ahead = (k - this.next + G) % G
+        if (ahead === 0 || ahead > Math.max(1, Math.floor(G * SKIP_WINDOW)))
+          continue
+        if (this.lap === 0 && k !== 0) continue
       }
       if (k === 0) {
         if (this.lap > 0) {
           const lapTime = t - this.lapStart
+          const ok = !this.invalid
           this.laps.push(lapTime)
+          this.valid.push(ok)
           this.lastLap = lapTime
-          this.bestLap =
-            this.bestLap == null ? lapTime : Math.min(this.bestLap, lapTime)
+          this.lastValid = ok
+          if (ok)
+            this.bestLap =
+              this.bestLap == null ? lapTime : Math.min(this.bestLap, lapTime)
           this.lapStart = t
         }
+        this.invalid = false
         this.lap++
       }
       this.next = (k + 1) % this.gates.length
