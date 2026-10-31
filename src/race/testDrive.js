@@ -6,6 +6,7 @@ import { speedKmh } from './carPhysics.js'
 import { formatTime } from './laps.js'
 import { RaceSim } from './raceSim.js'
 import { BRAKE_ASSIST, brakingLine, LINE_COLOURS } from './assists.js'
+import { RaceAudio, ThemeMusic } from '../audio/engineAudio.js'
 
 const ZOOM_STEPS = [9, 8.25, 7.5, 6.75, 6, 5.5, 5, 4.5]
 const DEFAULT_ZOOM = 0
@@ -64,7 +65,7 @@ export class TestDrive {
       brake: BRAKE_ASSIST[assists.brake] ? assists.brake : 'off',
       line: !!assists.line,
     }
-    this.onAssistsChange = null
+    this.onAssistsChange = null 
     this.onExit = onExit
     this.surface = buildSurface(track)
     this.keys = { throttle: false, brake: false, left: false, right: false }
@@ -72,6 +73,8 @@ export class TestDrive {
     this.chunks = new Map()
     this.chunkKey = ''
 
+    this.audio = new RaceAudio()
+    this.music = new ThemeMusic()
     this.buildDom()
     this.bind()
     this.resize()
@@ -130,8 +133,8 @@ export class TestDrive {
       <div class='gp-d-help'>
         ${
           this.isTV
-            ? '<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · <kbd>R</kbd> restart · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
-            : '<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+            ? '<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · <kbd>R</kbd> restart · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+            : '<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
         }
       </div>
 
@@ -157,7 +160,7 @@ export class TestDrive {
           )
       })
     }
-    if (import.meta.env.DEV) window.__testDrive = this // handy in the console
+    if (import.meta.env.DEV) window.__testDrive = this
   }
 
   bind() {
@@ -175,7 +178,8 @@ export class TestDrive {
         this.setZoom(this.zoom + 1)
       else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
         this.setZoom(this.zoom - 1)
-      else if (e.code === 'Space') this.paused = !this.paused
+      else if (e.code === 'Space') this.togglePause()
+      else if (e.code === 'KeyM') this.toggleSound()
       else if (e.code === 'KeyB') this.cycleBrakeAssist()
       else if (e.code === 'KeyL') this.toggleLine()
       else return
@@ -201,6 +205,8 @@ export class TestDrive {
     window.removeEventListener('blur', this.onBlur)
     window.removeEventListener('resize', this.onResize)
     this.root.remove()
+    this.audio.close()
+    this.music.stop()
     this.onExit?.()
   }
 
@@ -214,6 +220,7 @@ export class TestDrive {
       difficulty: this.difficulty,
       brakeAssist: this.assists.brake,
     })
+
     this.me = this.isTV
       ? this.sim.entries.find((e) => e.index === this.driverIndex)
       : this.sim.player
@@ -235,6 +242,8 @@ export class TestDrive {
     this.lapsSeen = 0
     this.towerKey = ''
     this.resultsShown = false
+    this.music?.stop()
+    this.audio?.pause(false)
     this.cam = { x: this.me.car.x, y: this.me.car.y }
     this.hud.lights.classList.add('is-visible')
     this.hud.results.classList.remove('is-visible')
@@ -276,7 +285,8 @@ export class TestDrive {
       this.setZoom(this.zoom + 1)
     else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
       this.setZoom(this.zoom - 1)
-    else if (e.code === 'Space') this.paused = !this.paused
+    else if (e.code === 'Space') this.togglePause()
+    else if (e.code === 'KeyM') this.toggleSound()
     else if (e.code === 'KeyL') this.toggleLine()
     else return
     e.preventDefault()
@@ -314,7 +324,7 @@ export class TestDrive {
     let best = null
     let bestScore = Infinity
     for (let i = 0; i < order.length - 1; i++) {
-      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step // tiles between them
+      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step 
       const score = gap * (1 + i * 0.08)
       if (score < bestScore) {
         bestScore = score
@@ -439,7 +449,7 @@ export class TestDrive {
       if (car.slip > 0.85 && car.speed > 1.5)
         spray(rate(40), 'rgba(220,220,220,0.5)', 0.11, 0.6, 0.7)
       if (car.hitBarrier > 0.25) spray(6, '#222', 0.05, 2.5, 0.4)
-      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3)
+      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3) 
       car.contact = Math.max(0, (car.contact ?? 0) - dt * 4)
     }
 
@@ -477,6 +487,14 @@ export class TestDrive {
     if (this.isRace && this.sim.phase === 'done' && !this.resultsShown)
       this.showResults()
     this.updateCamera(this.paused ? 0 : real)
+    if (!this.paused) {
+      this.audio.update(
+        this.me.car,
+        this.sim.entries.map((e) => ({ car: e.car, id: e.index })),
+        this.sim.time,
+        this.sim.phase === 'lights',
+      )
+    }
     this.draw()
     this.updateHud()
   }
@@ -558,6 +576,7 @@ export class TestDrive {
       this.chunks.clear()
       this.chunkKey = key
     }
+
     const ox = -Math.round(MARGIN * T)
     const oy = ox
     const left = this.cam.x * T - w / 2 - ox
@@ -587,6 +606,7 @@ export class TestDrive {
         ctx.drawImage(chunk, ox + i * CHUNK, oy + j * CHUNK, CHUNK, CHUNK)
       }
     }
+
     const bytes = Math.ceil(CHUNK * scale) ** 2 * 4
     const keep = Math.max(
       (i1 - i0 + 3) * (j1 - j0 + 3),
@@ -801,6 +821,18 @@ export class TestDrive {
     }
   }
 
+  togglePause() {
+    this.paused = !this.paused
+    this.audio.pause(this.paused || this.resultsShown)
+  }
+
+  toggleSound() {
+    const muted = this.audio.toggleMute()
+    if (muted) this.music.stop()
+    else if (this.resultsShown) this.music.play()
+    this.flash(`SOUND ${muted ? 'OFF' : 'ON'}`, 1)
+  }
+
   showResults() {
     this.resultsShown = true
     const sim = this.sim
@@ -851,6 +883,8 @@ export class TestDrive {
         </p>
       </div>`
     this.hud.results.classList.add('is-visible')
+    this.audio.pause(true)
+    if (!this.audio.muted) this.music.play()
   }
 
   buildMinimap() {
