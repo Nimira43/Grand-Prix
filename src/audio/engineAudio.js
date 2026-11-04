@@ -1,14 +1,14 @@
 export const ENGINE_TONE = {
-  howl: 0.75,
-  body: 0.83,
-  shimmer: 0.48,
+  howl: 0.75, 
+  body: 0.83, 
+  shimmer: 0.48, 
   rasp: 0.77,
   drive: 4.8,
-  brightness: 2.05,
-  roughness: 0.56,
-  wobble: 15,
-  offThrottle: 0.73,
-  level: 1,
+  brightness: 2.05, 
+  roughness: 0.56, 
+  wobble: 15, 
+  offThrottle: 0.73, 
+  level: 1, 
 }
 
 export const firingHz = (rpm) => (rpm / 60) * 6
@@ -233,6 +233,17 @@ export class RaceAudio {
     return !!this.ctx
   }
 
+  reset() {
+    if (!this.ok) return
+    this.assignAt = -Infinity
+    for (const slot of this.rivals) {
+      slot.car = null
+      slot.lastDist = null
+      slot.closing = 0
+      slot.voice.silence()
+    }
+  }
+
   toggleMute() {
     if (!this.ok) return false
     this.muted = !this.muted
@@ -302,7 +313,6 @@ export class RaceAudio {
       const dx = car.x - me.x
       const dy = car.y - me.y
       const d = Math.hypot(dx, dy)
-
       const closing =
         slot.lastDist == null
           ? 0

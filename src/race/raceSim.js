@@ -1,14 +1,22 @@
 import { DRIVERS, TEAMS, POINTS } from '../data/grid.js'
 import { carStats, createCar, stepCar } from './carPhysics.js'
-import { AIDriver, AI, DIFFICULTY, prepareLine, speedProfile, nearestIndex, globalNearest } from './ai.js'
+import {
+  AIDriver,
+  AI,
+  DIFFICULTY,
+  prepareLine,
+  speedProfile,
+  nearestIndex,
+  globalNearest,
+} from './ai.js'
 import { resolveCollisions } from './collisions.js'
 import { LapTimer } from './laps.js'
 import { applyBrakeAssist } from './assists.js'
 import { TrackLimits } from './trackLimits.js'
 import { simulateQualifying, gridOrder } from './qualifying.js'
 
-const LIGHTS_ON = 0.6
-const LIGHT_GAP = 1
+const LIGHTS_ON = 0.6 
+const LIGHT_GAP = 1 
 const SPIN_TIME = 1.3
 
 export function makeRng(seed = Date.now()) {
@@ -23,30 +31,48 @@ export function makeRng(seed = Date.now()) {
 }
 
 export class RaceSim {
-  constructor({ loop, surface, playerIndex = 0, field = true, laps = 8, difficulty = 'normal', seed, seats, brakeAssist = 'off', grid = null, flying = false }) {
+  constructor({
+    loop,
+    surface,
+    playerIndex = 0,
+    field = true,
+    laps = 8,
+    difficulty = 'normal',
+    seed,
+    seats,
+    brakeAssist = 'off',
+    grid = null,
+    flying = false,
+  }) {
     this.loop = loop
     this.surface = surface
     this.field = field
     this.laps = laps
     this.rng = makeRng(seed ?? Math.floor(Math.random() * 2 ** 31))
     this.line = prepareLine(loop.racingLine, loop.centre)
-    this.finishIdx = globalNearest(this.line, loop.checkpoints[0].x, loop.checkpoints[0].y)
+    this.finishIdx = globalNearest(
+      this.line,
+      loop.checkpoints[0].x,
+      loop.checkpoints[0].y,
+    )
     this.difficulty = DIFFICULTY[difficulty]?.pace ?? 1
     this.brakeAssist = brakeAssist
     this.time = 0
     this.phase = 'lights'
     this.lightsOutAt = LIGHTS_ON + LIGHT_GAP * 5 + 0.2 + this.rng() * 2.3
-    this.firstCross = new Map()
+    this.firstCross = new Map() 
     this.finishOrder = []
     this.flagTime = null
-    this.events = []
-    this.limitEvents = []
+    this.events = [] 
+    this.limitEvents = [] 
     this.contacts = 0
     this.touching = new Map()
     this.spins = 0
 
     seats = seats ?? (field ? DRIVERS.map((_, i) => i) : [playerIndex])
-    this.entries = seats.map((index) => this.makeEntry(index, index === playerIndex))
+    this.entries = seats.map((index) =>
+      this.makeEntry(index, index === playerIndex),
+    )
     this.gridOrder = grid
     this.gridUp()
     if (flying) this.flyingStart()
@@ -86,7 +112,15 @@ export class RaceSim {
       stats,
       profile,
       isPlayer,
-      ai: isPlayer ? null : new AIDriver({ driver, line: this.line, profile, rng: this.rng, difficulty: this.difficulty }),
+      ai: isPlayer
+        ? null
+        : new AIDriver({
+            driver,
+            line: this.line,
+            profile,
+            rng: this.rng,
+            difficulty: this.difficulty,
+          }),
       car: null,
       timer: null,
       idx: 0,
@@ -102,9 +136,17 @@ export class RaceSim {
 
   gridUp() {
     let indices = this.gridOrder
-    if (!indices) indices = gridOrder(simulateQualifying(this.entries, this.line, { rng: this.rng, difficulty: this.difficulty }))
+    if (!indices)
+      indices = gridOrder(
+        simulateQualifying(this.entries, this.line, {
+          rng: this.rng,
+          difficulty: this.difficulty,
+        }),
+      )
     const rank = new Map(indices.map((idx, pos) => [idx, pos]))
-    const order = [...this.entries].sort((a, b) => (rank.get(a.index) ?? 99) - (rank.get(b.index) ?? 99))
+    const order = [...this.entries].sort(
+      (a, b) => (rank.get(a.index) ?? 99) - (rank.get(b.index) ?? 99),
+    )
     order.forEach((e, pos) => {
       const slot = this.loop.grid[pos]
       e.grid = pos + 1
@@ -125,7 +167,10 @@ export class RaceSim {
 
   get lightsLit() {
     if (this.phase !== 'lights') return -1
-    return Math.max(0, Math.min(5, Math.floor((this.time - LIGHTS_ON) / LIGHT_GAP) + 1))
+    return Math.max(
+      0,
+      Math.min(5, Math.floor((this.time - LIGHTS_ON) / LIGHT_GAP) + 1),
+    )
   }
 
   step(dt, playerInput = {}) {
@@ -156,11 +201,15 @@ export class RaceSim {
       } else {
         let input
         if (e.isPlayer) {
-          const assisted = applyBrakeAssist(e, playerInput, this.line, this.brakeAssist)
+          const assisted = applyBrakeAssist(
+            e,
+            playerInput,
+            this.line,
+            this.brakeAssist,
+          )
           input = assisted.input
           e.assistActive = assisted.active
-        }
-        else {
+        } else {
           const ctx = {
             time: this.time,
             raceTime: this.raceTime,
@@ -178,14 +227,21 @@ export class RaceSim {
       else {
         e.idx = nearestIndex(this.line, car.x, car.y, e.idx)
         const p = this.line.points[e.idx]
-        if ((p[0] - car.x) ** 2 + (p[1] - car.y) ** 2 > 2.25) e.idx = globalNearest(this.line, car.x, car.y)
+        if ((p[0] - car.x) ** 2 + (p[1] - car.y) ** 2 > 2.25)
+          e.idx = globalNearest(this.line, car.x, car.y)
       }
 
       const hit = e.timer.update(x0, y0, car.x, car.y, this.time, dt)
       if (hit) this.crossed(e)
 
       if (!e.finished) {
-        const verdict = e.limits.update(e, this.line, this.time, dt, this.field)
+        const verdict = e.limits.update(
+          e,
+          this.line,
+          this.time,
+          dt,
+          this.field,
+        )
         if (verdict) this.trackLimits(e, verdict)
       }
     }
@@ -224,7 +280,10 @@ export class RaceSim {
     this.spinCauses = this.spinCauses ?? {}
     this.spinCauses[cause] = (this.spinCauses[cause] ?? 0) + 1
     const dir = this.rng() < 0.5 ? -1 : 1
-    e.car.spin = { t: 0, rate: (dir * Math.PI * 2 * (0.9 + this.rng() * 0.5)) / SPIN_TIME }
+    e.car.spin = {
+      t: 0,
+      rate: (dir * Math.PI * 2 * (0.9 + this.rng() * 0.5)) / SPIN_TIME,
+    }
     this.spins++
     this.event(`${e.driver.name.toUpperCase()} SPINS!`)
   }
@@ -237,10 +296,13 @@ export class RaceSim {
     this.contacts++
     if (impact > 1) this.hardContacts = (this.hardContacts ?? 0) + 1
     if (impact < 1.8) return
+
     for (const car of [a, b]) {
       const e = this.entries.find((x) => x.car === car)
       if (!e || e.isPlayer) continue
-      const chance = { clean: 0.08, normal: 0.14, ragged: 0.22 }[e.driver.consistency] ?? 0.14
+      const chance =
+        { clean: 0.08, normal: 0.14, ragged: 0.22 }[e.driver.consistency] ??
+        0.14
       if (this.rng() < chance * Math.min(1, impact / 3.5)) this.spin(e)
     }
   }
@@ -253,6 +315,7 @@ export class RaceSim {
     e.lastKey = key
     e.lastCross = this.time
     if (gate !== 0 || !this.field || e.finished) return
+    
     const done = t.laps.length >= this.laps
     if (done || this.flagTime != null) {
       if (this.flagTime == null) {
@@ -268,16 +331,22 @@ export class RaceSim {
   trackLimits(e, verdict) {
     e.timer.invalidate()
     this.limitEvents.push({ entry: e, verdict, time: this.time })
-    if (e.isPlayer) return
+    if (e.isPlayer) return 
     const name = e.driver.name.toUpperCase()
-    if (verdict.kind === 'cut') this.event(`${name}: ${verdict.seconds}-SEC PENALTY (CUTTING THE TRACK)`)
-    else if (verdict.kind === 'penalty') this.event(`${name}: ${verdict.seconds}-SEC PENALTY (TRACK LIMITS)`)
-    else if (verdict.kind === 'final') this.event(`${name}: BLACK-AND-WHITE FLAG`)
+    if (verdict.kind === 'cut')
+      this.event(`${name}: ${verdict.seconds}-SEC PENALTY (CUTTING THE TRACK)`)
+    else if (verdict.kind === 'penalty')
+      this.event(`${name}: ${verdict.seconds}-SEC PENALTY (TRACK LIMITS)`)
+    else if (verdict.kind === 'final')
+      this.event(`${name}: BLACK-AND-WHITE FLAG`)
   }
 
   lateral(e) {
     const p = this.line.points[e.idx]
-    return (e.car.x - p[0]) * this.line.nx[e.idx] + (e.car.y - p[1]) * this.line.ny[e.idx]
+    return (
+      (e.car.x - p[0]) * this.line.nx[e.idx] +
+      (e.car.y - p[1]) * this.line.ny[e.idx]
+    )
   }
 
   updateProgress() {
@@ -287,13 +356,17 @@ export class RaceSim {
       const lap = e.timer?.lap ?? 0
       const next = e.timer?.next ?? 0
       if (next === 1 && dist > n / 2) dist -= n 
-      if (next === 0 && lap > 0 && dist < n / 2) dist += n
-      if (lap === 0 && dist < n / 2) dist += n
+      if (next === 0 && lap > 0 && dist < n / 2) dist += n 
+      if (lap === 0 && dist < n / 2) dist += n 
+      e.progress = lap * n + dist
     }
   }
 
+
   standings() {
-    const running = this.entries.filter((e) => !e.finished).sort((a, b) => b.progress - a.progress)
+    const running = this.entries
+      .filter((e) => !e.finished)
+      .sort((a, b) => b.progress - a.progress)
     return [...this.finishOrder, ...running]
   }
 
@@ -301,10 +374,13 @@ export class RaceSim {
     if (e === leader) return 'LEADER'
     if (this.phase === 'lights' || !e.timer || e.timer.lap === 0) return ''
     const lapsDown = Math.floor((leader.progress - e.progress) / this.line.n)
-    if (lapsDown >= 1 && !e.finished) return `+${lapsDown} LAP${lapsDown > 1 ? 'S' : ''}`
+    if (lapsDown >= 1 && !e.finished)
+      return `+${lapsDown} LAP${lapsDown > 1 ? 'S' : ''}`
     if (e.finished && leader.finished) {
       const d = e.finishTime - leader.finishTime
-      return e.timer.laps.length < leader.timer.laps.length ? `+${leader.timer.laps.length - e.timer.laps.length} LAP` : `+${d.toFixed(3)}`
+      return e.timer.laps.length < leader.timer.laps.length
+        ? `+${leader.timer.laps.length - e.timer.laps.length} LAP`
+        : `+${d.toFixed(3)}`
     }
     const first = this.firstCross.get(e.lastKey)
     return first == null ? '' : `+${(e.lastCross - first).toFixed(1)}`
@@ -318,7 +394,9 @@ export class RaceSim {
           b.timer.laps.length - a.timer.laps.length ||
           a.finishTime + a.limits.penalty - (b.finishTime + b.limits.penalty),
       )
-    const running = this.entries.filter((e) => !e.finished).sort((a, b) => b.progress - a.progress)
+    const running = this.entries
+      .filter((e) => !e.finished)
+      .sort((a, b) => b.progress - a.progress)
     return [...finished, ...running].map((e, i) => ({
       pos: i + 1,
       entry: e,

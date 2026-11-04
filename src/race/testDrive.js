@@ -15,16 +15,16 @@ import { BRAKE_ASSIST, brakingLine, LINE_COLOURS } from './assists.js'
 import { RaceAudio, ThemeMusic } from '../audio/engineAudio.js'
 
 const ZOOM_STEPS = [9, 8.25, 7.5, 6.75, 6, 5.5, 5, 4.5]
-const DEFAULT_ZOOM = 0
+const DEFAULT_ZOOM = 0 
 const ZOOM_KEY = 'grand-prix.raceZoomLevel'
 const STEP = 1 / 120
-const MARGIN = 2
-const LOOK_AHEAD = 0.45
+const MARGIN = 2 
+const LOOK_AHEAD = 0.45 
 const MAX_LEAD = 0.65
 const CHUNK = 400
-const CHUNK_MEMORY = 150_000_000
-const AFTER_FLAG_SPEEDUP = 3
-const PARTICLE_RANGE = 14
+const CHUNK_MEMORY = 150_000_000 
+const AFTER_FLAG_SPEEDUP = 3 
+const PARTICLE_RANGE = 14 
 
 function loadZoom() {
   try {
@@ -69,12 +69,12 @@ export class TestDrive {
     this.mode = mode
     this.difficulty = difficulty
     this.qualifying = qualifying && mode === 'race'
-    this.stage = 'race'
+    this.stage = 'race' 
     this.assists = {
       brake: BRAKE_ASSIST[assists.brake] ? assists.brake : 'off',
       line: !!assists.line,
     }
-    this.onAssistsChange = null
+    this.onAssistsChange = null 
     this.onExit = onExit
     this.surface = buildSurface(track)
     this.keys = { throttle: false, brake: false, left: false, right: false }
@@ -141,8 +141,8 @@ export class TestDrive {
       <div class='gp-d-help'>
         ${
           this.isTV
-            ? '<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>-</kbd> zoom · <kbd>L</kbd> line · <kbd>R</kbd> restart · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
-            : '<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>-</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+            ? '<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · <kbd>R</kbd> restart · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+            : '<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
         }
       </div>
 
@@ -168,7 +168,7 @@ export class TestDrive {
           )
       })
     }
-    if (import.meta.env.DEV) window.__testDrive = this
+    if (import.meta.env.DEV) window.__testDrive = this 
   }
 
   bind() {
@@ -233,13 +233,14 @@ export class TestDrive {
     this.sim = new RaceSim({
       loop: this.loop,
       surface: this.surface,
-      playerIndex: this.isTV ? null : this.driverIndex,
+      playerIndex: this.isTV ? null : this.driverIndex, 
       field: this.isRace,
       laps: this.track.laps,
       difficulty: this.difficulty,
       brakeAssist: this.assists.brake,
       grid,
     })
+
     this.me = this.isTV
       ? this.sim.entries.find((e) => e.index === this.driverIndex)
       : this.sim.player
@@ -259,7 +260,7 @@ export class TestDrive {
       loop: this.loop,
       surface: this.surface,
       playerIndex: this.driverIndex,
-      field: false,
+      field: false, 
       difficulty: this.difficulty,
       brakeAssist: this.assists.brake,
       flying: true,
@@ -270,6 +271,7 @@ export class TestDrive {
     this.setupView()
     this.hud.lights.classList.remove('is-visible')
     this.flash('ONE-SHOT QUALIFYING', 2.5)
+
     const field = new RaceSim({
       loop: this.loop,
       surface: this.surface,
@@ -381,6 +383,9 @@ export class TestDrive {
     this.feed = []
     this.lapsSeen = 0
     this.towerKey = ''
+    this.towerAt = -Infinity
+    if (this.hud.tower) this.hud.tower.innerHTML = ''
+    this.audio?.reset()
     this.resultsShown = false
     this.music?.stop()
     this.audio?.pause(false)
@@ -406,9 +411,10 @@ export class TestDrive {
     const order = this.sim.standings()
     const i = order.indexOf(this.me)
     if (e.code === 'Escape') this.exit()
-    else if (e.code === 'KeyO') this.follow(order[Math.max(0, i - 1)], true)
+    else if (e.code === 'KeyO')
+      this.follow(order[Math.max(0, i - 1)], true) 
     else if (e.code === 'KeyP')
-      this.follow(order[Math.min(order.length - 1, i + 1)], true)
+      this.follow(order[Math.min(order.length - 1, i + 1)], true) 
     else if (e.code === 'KeyD') {
       this.director = !this.director
       this.directorAt = -Infinity
@@ -432,7 +438,7 @@ export class TestDrive {
     if (!entry || entry === this.me) return
     this.me = entry
     if (manual && this.director) {
-      this.director = false
+      this.director = false 
       this.flash('DIRECTOR OFF', 1)
     }
     this.lineRuns = brakingLine(entry.profile, this.sim.line, entry.stats.top)
@@ -460,11 +466,11 @@ export class TestDrive {
     let best = null
     let bestScore = Infinity
     for (let i = 0; i < order.length - 1; i++) {
-      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step
+      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step 
       const score = gap * (1 + i * 0.08)
       if (score < bestScore) {
         bestScore = score
-        best = order[i + 1]
+        best = order[i + 1] 
       }
     }
     if (best) this.follow(best)
@@ -590,7 +596,7 @@ export class TestDrive {
       if (car.slip > 0.85 && car.speed > 1.5)
         spray(rate(40), 'rgba(220,220,220,0.5)', 0.11, 0.6, 0.7)
       if (car.hitBarrier > 0.25) spray(6, '#222', 0.05, 2.5, 0.4)
-      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3)
+      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3) 
       car.contact = Math.max(0, (car.contact ?? 0) - dt * 4)
     }
 
@@ -717,7 +723,8 @@ export class TestDrive {
       this.chunks.clear()
       this.chunkKey = key
     }
-    const ox = -Math.round(MARGIN * T)
+
+    const ox = -Math.round(MARGIN * T) 
     const oy = ox
     const left = this.cam.x * T - w / 2 - ox
     const top = this.cam.y * T - h / 2 - oy
@@ -738,7 +745,7 @@ export class TestDrive {
         const k = `${i},${j}`
         let chunk = this.chunks.get(k)
         if (chunk) {
-          this.chunks.delete(k)
+          this.chunks.delete(k) 
         } else {
           chunk = this.buildChunk(i, j, T, scale, -ox)
         }
@@ -746,6 +753,7 @@ export class TestDrive {
         ctx.drawImage(chunk, ox + i * CHUNK, oy + j * CHUNK, CHUNK, CHUNK)
       }
     }
+
     const bytes = Math.ceil(CHUNK * scale) ** 2 * 4
     const keep = Math.max(
       (i1 - i0 + 3) * (j1 - j0 + 3),
@@ -1002,7 +1010,7 @@ export class TestDrive {
 
   updateTower() {
     const sim = this.sim
-    if (sim.time - (this.towerAt ?? -1) < 0.15) return
+    if (sim.time - (this.towerAt ?? -1) < 0.15) return 
     this.towerAt = sim.time
     const order = sim.standings()
     const leader = order[0]
@@ -1124,11 +1132,12 @@ export class TestDrive {
     ctx.strokeStyle = '#e9ecf1'
     ctx.lineWidth = 2.5
     ctx.stroke()
+
     const f = this.loop.checkpoints[0]
     ctx.strokeStyle = '#e10600'
     ctx.lineWidth = 3
     ctx.beginPath()
-    const k = 7 / s
+    const k = 7 / s 
     ctx.moveTo(ox + (f.x - f.nx * k) * s, oy + (f.y - f.ny * k) * s)
     ctx.lineTo(ox + (f.x + f.nx * k) * s, oy + (f.y + f.ny * k) * s)
     ctx.stroke()
@@ -1151,7 +1160,7 @@ export class TestDrive {
       ctx.stroke()
     }
     for (const e of this.sim.entries) if (e !== this.me) dot(e, 3)
-    dot(this.me, 5.5)
+    dot(this.me, 5.5) 
   }
 }
 
@@ -1168,7 +1177,7 @@ function drawTyreWall(ctx, cols, rows, T) {
     ctx.fillStyle = Math.floor(i / 4) % 2 ? '#e10600' : '#f2f2f2'
     ctx.fill()
   }
-  const off = [-0.14, -0.38]
+  const off = [-0.14, -0.38] 
   for (const o of off) {
     let i = 0
     for (let x = o; x <= cols - o + 1e-6; x += gap) {
