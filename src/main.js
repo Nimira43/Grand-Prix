@@ -4,7 +4,14 @@ import { TestDrive } from './race/testDrive.js'
 
 const editor = new Editor(document.querySelector('#app'))
 
-editor.onTestDrive = ({ track, driverIndex, mode, difficulty, assists }) => {
+editor.onTestDrive = ({
+  track,
+  driverIndex,
+  mode,
+  difficulty,
+  assists,
+  qualifying,
+}) => {
   editor.active = false
   const race = new TestDrive({
     track,
@@ -12,9 +19,10 @@ editor.onTestDrive = ({ track, driverIndex, mode, difficulty, assists }) => {
     mode,
     difficulty,
     assists,
+    qualifying,
     onExit: () => {
       editor.active = true
     },
   })
-  race.onAssistsChange = (a) => editor.setAssists(a) 
+  race.onAssistsChange = (a) => editor.setAssists(a)
 }

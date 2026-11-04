@@ -5,6 +5,12 @@ import { buildSurface } from './surface.js'
 import { speedKmh } from './carPhysics.js'
 import { formatTime } from './laps.js'
 import { RaceSim } from './raceSim.js'
+import {
+  calibrate,
+  simulateQualifying,
+  gridOrder,
+  estimateLap,
+} from './qualifying.js'
 import { BRAKE_ASSIST, brakingLine, LINE_COLOURS } from './assists.js'
 import { RaceAudio, ThemeMusic } from '../audio/engineAudio.js'
 
@@ -50,6 +56,7 @@ export class TestDrive {
     mode = 'race',
     difficulty = 'normal',
     assists = {},
+    qualifying = true,
     onExit,
   }) {
     this.track = track
@@ -61,18 +68,19 @@ export class TestDrive {
     this.team = TEAMS[this.driver.team]
     this.mode = mode
     this.difficulty = difficulty
+    this.qualifying = qualifying && mode === 'race'
+    this.stage = 'race'
     this.assists = {
       brake: BRAKE_ASSIST[assists.brake] ? assists.brake : 'off',
       line: !!assists.line,
     }
-    this.onAssistsChange = null 
+    this.onAssistsChange = null
     this.onExit = onExit
     this.surface = buildSurface(track)
     this.keys = { throttle: false, brake: false, left: false, right: false }
     this.zoom = loadZoom()
     this.chunks = new Map()
     this.chunkKey = ''
-
     this.audio = new RaceAudio()
     this.music = new ThemeMusic()
     this.buildDom()
@@ -121,7 +129,7 @@ export class TestDrive {
       <canvas class='gp-d-map' width='240' height='170'></canvas>
 
       <div class='gp-d-driver' data-hud='plate'></div>
-      ${this.isTV ? "<div class='gp-d-tv' data-hud='tv'></div>" : ''}
+      <div class='gp-d-tv' data-hud='tv'></div>
 
       <div class='gp-d-dash'>
         <div class='gp-d-revs' data-hud='revs'>${'<i></i>'.repeat(15)}</div>
@@ -133,8 +141,8 @@ export class TestDrive {
       <div class='gp-d-help'>
         ${
           this.isTV
-            ? '<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · <kbd>R</kbd> restart · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
-            : '<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+            ? '<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>-</kbd> zoom · <kbd>L</kbd> line · <kbd>R</kbd> restart · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+            : '<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>-</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
         }
       </div>
 
@@ -174,6 +182,11 @@ export class TestDrive {
       if (e.repeat) return
       if (e.code === 'Escape') this.exit()
       else if (e.code === 'KeyR') this.reset()
+      else if (
+        (e.code === 'Enter' || e.code === 'NumpadEnter') &&
+        this.stage === 'quali-done'
+      )
+        this.startRace(this.qualiOrder)
       else if (e.code === 'Equal' || e.code === 'NumpadAdd')
         this.setZoom(this.zoom + 1)
       else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
@@ -211,6 +224,12 @@ export class TestDrive {
   }
 
   reset() {
+    if (this.qualifying) this.startQualifying()
+    else this.startRace(null)
+  }
+
+  startRace(grid) {
+    this.stage = 'race'
     this.sim = new RaceSim({
       loop: this.loop,
       surface: this.surface,
@@ -219,11 +238,132 @@ export class TestDrive {
       laps: this.track.laps,
       difficulty: this.difficulty,
       brakeAssist: this.assists.brake,
+      grid,
     })
-
     this.me = this.isTV
       ? this.sim.entries.find((e) => e.index === this.driverIndex)
       : this.sim.player
+    this.setupView()
+    this.hud.lights.classList.add('is-visible')
+    if (this.isTV)
+      this.flash(
+        `${this.me.driver.name.toUpperCase()} STARTS P${this.me.grid}`,
+        4,
+      )
+    else if (this.isRace) this.flash(`GRID: P${this.me.grid}`, 4)
+  }
+
+  startQualifying() {
+    this.stage = 'quali'
+    this.sim = new RaceSim({
+      loop: this.loop,
+      surface: this.surface,
+      playerIndex: this.driverIndex,
+      field: false,
+      difficulty: this.difficulty,
+      brakeAssist: this.assists.brake,
+      flying: true,
+    })
+    this.me = this.sim.player
+    this.qualiResults = null
+    this.qualiOrder = null
+    this.setupView()
+    this.hud.lights.classList.remove('is-visible')
+    this.flash('ONE-SHOT QUALIFYING', 2.5)
+    const field = new RaceSim({
+      loop: this.loop,
+      surface: this.surface,
+      playerIndex: this.driverIndex,
+      difficulty: this.difficulty,
+    })
+    const token = (this.qualiToken = {})
+    calibrate({
+      loop: this.loop,
+      surface: this.surface,
+      difficulty: this.difficulty,
+      key: JSON.stringify(this.track.toJSON().pieces),
+    }).then((scale) => {
+      if (token !== this.qualiToken) return // restarted meanwhile
+      const others = field.entries.filter((e) => !e.isPlayer)
+      this.qualiResults = simulateQualifying(others, field.line, {
+        rng: Math.random,
+        difficulty: field.difficulty,
+        scale,
+      })
+      this.myEstimate = estimateLap(field.player, field.line, field.difficulty)
+      this.towerKey = ''
+    })
+  }
+
+  finishQualifying() {
+    const t = this.me.timer
+    const time = t.lastValid ? t.laps[0] : null
+    const mine = {
+      index: this.driverIndex,
+      entry: this.me,
+      time,
+      note: time == null ? 'deleted' : null,
+      estimate: this.myEstimate ?? Infinity,
+    }
+    const results = [...(this.qualiResults ?? []), mine]
+    this.qualiOrder = gridOrder(results)
+    this.stage = 'quali-done'
+    const pos = this.qualiOrder.indexOf(this.driverIndex) + 1
+    if (time == null) this.flash('LAP DELETED: NO TIME', 3, 'is-pen')
+    else
+      this.flash(
+        `${pos === 1 ? 'POLE POSITION!' : `P${pos}`} ${formatTime(time)}`,
+        3,
+        pos === 1 ? 'is-best' : '',
+      )
+    setTimeout(
+      () => this.stage === 'quali-done' && this.showQualiResults(results),
+      1800,
+    )
+  }
+
+  showQualiResults(results) {
+    const byIndex = new Map(results.map((r) => [r.index, r]))
+    const pole = byIndex.get(this.qualiOrder[0])?.time
+    const rows = this.qualiOrder
+      .map((index, i) => {
+        const r = byIndex.get(index)
+        const e = r.entry
+        const time =
+          r.time == null
+            ? 'No time'
+            : i === 0
+              ? formatTime(r.time)
+              : `+${(r.time - pole).toFixed(3)}`
+        const note =
+          r.note === 'deleted'
+            ? 'Lap deleted (track limits)'
+            : r.note === 'scrappy'
+              ? 'Scrappy lap'
+              : ''
+        return `<tr class='${r.index === this.driverIndex ? 'is-me' : ''}'>
+          <td class='p'>${i + 1}</td>
+          <td><i style='background:${e.team.colour}'></i>${esc(e.driver.name)}</td>
+          <td class='t'>${esc(e.team.name)}</td>
+          <td class='n${i === 0 ? ' fl' : ''}'>${r.time == null ? '' : formatTime(r.time)}</td>
+          <td class='n'>${i === 0 ? 'POLE' : time}</td>
+          <td class='t'>${note}</td>
+        </tr>`
+      })
+      .join('')
+    this.hud.results.innerHTML = `
+      <div class='gp-d-results-card'>
+        <h2>${esc(this.track.name)} <span>One-shot qualifying</span></h2>
+        <table>
+          <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Gap</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <p class='gp-d-results-foot'><kbd>Enter</kbd> start the race · <kbd>R</kbd> qualify again · <kbd>Esc</kbd> editor</p>
+      </div>`
+    this.hud.results.classList.add('is-visible')
+  }
+
+  setupView() {
     this.speed = 1
     this.director = false
     this.directorAt = 0
@@ -245,16 +385,12 @@ export class TestDrive {
     this.music?.stop()
     this.audio?.pause(false)
     this.cam = { x: this.me.car.x, y: this.me.car.y }
-    this.hud.lights.classList.add('is-visible')
     this.hud.results.classList.remove('is-visible')
     this.hud.results.innerHTML = ''
+    this.root.classList.toggle('is-quali', this.stage !== 'race')
+    this.hud.tv.textContent = ''
+    this.tvText = ''
     this.updatePlate()
-    if (this.isTV)
-      this.flash(
-        `${this.me.driver.name.toUpperCase()} STARTS P${this.me.grid}`,
-        4,
-      )
-    else if (this.isRace) this.flash(`GRID: P${this.me.grid}`, 4)
   }
 
   updatePlate() {
@@ -324,7 +460,7 @@ export class TestDrive {
     let best = null
     let bestScore = Infinity
     for (let i = 0; i < order.length - 1; i++) {
-      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step 
+      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step
       const score = gap * (1 + i * 0.08)
       if (score < bestScore) {
         bestScore = score
@@ -380,8 +516,13 @@ export class TestDrive {
 
     if (this.isTV) this.runDirector()
 
+    if (this.stage === 'quali' && this.me.timer?.laps.length >= 1) {
+      this.lapsSeen = 1
+      this.finishQualifying()
+    }
+
     const t = this.me.timer
-    if (t && t.laps.length > this.lapsSeen) {
+    if (this.stage === 'race' && t && t.laps.length > this.lapsSeen) {
       this.lapsSeen = t.laps.length
       const best = t.lastValid && t.lastLap === t.bestLap
       if (this.me.finished) {
@@ -449,7 +590,7 @@ export class TestDrive {
       if (car.slip > 0.85 && car.speed > 1.5)
         spray(rate(40), 'rgba(220,220,220,0.5)', 0.11, 0.6, 0.7)
       if (car.hitBarrier > 0.25) spray(6, '#222', 0.05, 2.5, 0.4)
-      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3) 
+      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3)
       car.contact = Math.max(0, (car.contact ?? 0) - dt * 4)
     }
 
@@ -576,7 +717,6 @@ export class TestDrive {
       this.chunks.clear()
       this.chunkKey = key
     }
-
     const ox = -Math.round(MARGIN * T)
     const oy = ox
     const left = this.cam.x * T - w / 2 - ox
@@ -606,7 +746,6 @@ export class TestDrive {
         ctx.drawImage(chunk, ox + i * CHUNK, oy + j * CHUNK, CHUNK, CHUNK)
       }
     }
-
     const bytes = Math.ceil(CHUNK * scale) ** 2 * 4
     const keep = Math.max(
       (i1 - i0 + 3) * (j1 - j0 + 3),
@@ -723,7 +862,13 @@ export class TestDrive {
       this.assists.brake === 'off'
         ? 'BRAKE ASSIST OFF'
         : `BRAKE ASSIST ${this.assists.brake.toUpperCase()}`
-    if (this.isRace) {
+    if (this.stage !== 'race') {
+      hud.lap.textContent = 'Q'
+      const pos = this.qualiOrder
+        ? this.qualiOrder.indexOf(this.driverIndex) + 1
+        : null
+      if (hud.pos) hud.pos.textContent = pos ? `${pos}/22` : '-'
+    } else if (this.isRace) {
       const lap = t ? Math.min(sim.laps, Math.max(1, t.laps.length + 1)) : 1
       hud.lap.textContent = `${lap}/${sim.laps}`
     } else {
@@ -772,7 +917,8 @@ export class TestDrive {
       if (sim.raceTime > 1.5) hud.lights.classList.remove('is-visible')
     }
 
-    if (this.isRace) this.updateTower()
+    if (this.stage !== 'race') this.updateQualiHud()
+    else if (this.isRace) this.updateTower()
     if (this.isTV) {
       const tv = `📺 TV · ${this.me.driver.name.toUpperCase()}${this.director ? ' · DIRECTOR' : ''}${this.speed > 1 ? ` · ×${this.speed}` : ''}`
       if (tv !== this.tvText) {
@@ -792,6 +938,65 @@ export class TestDrive {
     if (feedText !== this.feedText) {
       hud.feed.innerHTML = feedText
       this.feedText = feedText
+    }
+  }
+
+  updateQualiHud() {
+    const t = this.me.timer
+    const rs = this.qualiResults
+    const done = this.stage === 'quali-done'
+    const myTime = done && t.lastValid ? t.laps[0] : null
+    let pole = null
+    if (rs)
+      for (const r of rs)
+        if (r.time != null && (!pole || r.time < pole.time)) pole = r
+    if (done && myTime != null && (!pole || myTime < pole.time))
+      pole = { time: myTime, entry: this.me }
+    const phase = done ? 'SESSION OVER' : t?.lap > 0 ? 'FLYING LAP' : 'RUN-UP'
+    const label = done ? 'POLE' : 'POLE TO BEAT'
+    const badge = `ONE-SHOT QUALIFYING · ${phase}${pole ? ` · ${label} ${formatTime(pole.time)} ${pole.entry.driver.code}` : ''}`
+    if (badge !== this.tvText) {
+      this.hud.tv.textContent = badge
+      this.tvText = badge
+    }
+    if (!this.hud.tower || !rs || this.sim.time - (this.towerAt ?? -1) < 0.2)
+      return
+    this.towerAt = this.sim.time
+    const list = [
+      ...rs,
+      ...(done
+        ? [
+            {
+              index: this.driverIndex,
+              entry: this.me,
+              time: myTime,
+              estimate: this.myEstimate,
+            },
+          ]
+        : []),
+    ]
+    const order = gridOrder(list).map((i) => list.find((r) => r.index === i))
+    if (!done)
+      order.push({ index: this.driverIndex, entry: this.me, time: undefined })
+    const best = order[0]?.time
+    const html = order
+      .map((r, i) => {
+        const me = r.index === this.driverIndex
+        const gap =
+          r.time === undefined
+            ? 'ON TRACK'
+            : r.time == null
+              ? 'NO TIME'
+              : i === 0
+                ? formatTime(r.time)
+                : `+${(r.time - best).toFixed(3)}`
+        return `<li class='${me ? 'is-me' : ''}'><span class='p'>${r.time === undefined ? '-' : i + 1}</span><i style='background:${r.entry.team.colour}'></i>
+          <span class='c'>${r.entry.driver.code}</span><span class='g'>${gap}</span></li>`
+      })
+      .join('')
+    if (html !== this.towerKey) {
+      this.hud.tower.innerHTML = html
+      this.towerKey = html
     }
   }
 
@@ -883,6 +1088,7 @@ export class TestDrive {
         </p>
       </div>`
     this.hud.results.classList.add('is-visible')
+    // Engines quieten, the theme tune comes in.
     this.audio.pause(true)
     if (!this.audio.muted) this.music.play()
   }

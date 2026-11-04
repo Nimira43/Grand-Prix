@@ -2,7 +2,8 @@ const GATE_SLACK = 0.6
 const SKIP_WINDOW = 1 / 3
 
 export class LapTimer {
-  constructor(loop, startTime = 0) {
+  constructor(loop, startTime = 0, { flying = false } = {}) {
+    this.flying = flying
     this.gates = loop.checkpoints.map((cp) => {
       const hw = cp.halfWidth + GATE_SLACK
       return {
@@ -34,7 +35,6 @@ export class LapTimer {
       const g = this.gates[k]
       const f = crossing(x0, y0, x1, y1, g)
       if (f == null) continue
-
       if ((x1 - x0) * g.tx + (y1 - y0) * g.ty <= 0) continue
       const t = time - dt + f * dt
       if (k !== this.next) {
@@ -42,7 +42,7 @@ export class LapTimer {
         const ahead = (k - this.next + G) % G
         if (ahead === 0 || ahead > Math.max(1, Math.floor(G * SKIP_WINDOW)))
           continue
-        if (this.lap === 0 && k !== 0) continue
+        if (this.lap === 0 && k !== 0) continue // still on the grid side of the line
       }
       if (k === 0) {
         if (this.lap > 0) {
@@ -55,6 +55,8 @@ export class LapTimer {
           if (ok)
             this.bestLap =
               this.bestLap == null ? lapTime : Math.min(this.bestLap, lapTime)
+          this.lapStart = t
+        } else if (this.flying) {
           this.lapStart = t
         }
         this.invalid = false

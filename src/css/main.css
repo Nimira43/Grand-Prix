@@ -1132,3 +1132,13 @@ kbd {
 .gp-d-tower li {
   grid-template-columns: 22px 4px minmax(40px, auto) 1fr;
 }
+
+/* ---------- qualifying ---------- */
+
+.gp-d-tv:empty {
+  display: none;
+}
+
+.is-quali .gp-d-limits {
+  display: none;
+}

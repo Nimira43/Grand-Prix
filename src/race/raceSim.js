@@ -5,9 +5,10 @@ import { resolveCollisions } from './collisions.js'
 import { LapTimer } from './laps.js'
 import { applyBrakeAssist } from './assists.js'
 import { TrackLimits } from './trackLimits.js'
+import { simulateQualifying, gridOrder } from './qualifying.js'
 
-const LIGHTS_ON = 0.6 
-const LIGHT_GAP = 1 
+const LIGHTS_ON = 0.6
+const LIGHT_GAP = 1
 const SPIN_TIME = 1.3
 
 export function makeRng(seed = Date.now()) {
@@ -22,7 +23,7 @@ export function makeRng(seed = Date.now()) {
 }
 
 export class RaceSim {
-  constructor({ loop, surface, playerIndex = 0, field = true, laps = 8, difficulty = 'normal', seed, seats, brakeAssist = 'off' }) {
+  constructor({ loop, surface, playerIndex = 0, field = true, laps = 8, difficulty = 'normal', seed, seats, brakeAssist = 'off', grid = null, flying = false }) {
     this.loop = loop
     this.surface = surface
     this.field = field
@@ -35,18 +36,43 @@ export class RaceSim {
     this.time = 0
     this.phase = 'lights'
     this.lightsOutAt = LIGHTS_ON + LIGHT_GAP * 5 + 0.2 + this.rng() * 2.3
-    this.firstCross = new Map() 
+    this.firstCross = new Map()
     this.finishOrder = []
     this.flagTime = null
-    this.events = [] 
-    this.limitEvents = [] 
+    this.events = []
+    this.limitEvents = []
     this.contacts = 0
     this.touching = new Map()
     this.spins = 0
 
     seats = seats ?? (field ? DRIVERS.map((_, i) => i) : [playerIndex])
     this.entries = seats.map((index) => this.makeEntry(index, index === playerIndex))
+    this.gridOrder = grid
     this.gridUp()
+    if (flying) this.flyingStart()
+  }
+
+  flyingStart() {
+    const { n, step, curv } = this.line
+    const back = Math.round(Math.min(25, n * step * 0.25) / step)
+    let best = (this.finishIdx - back + n) % n
+    for (let k = -20; k <= 20; k++) {
+      const i = (this.finishIdx - back + k + n) % n
+      if (curv[i] < curv[best]) best = i
+    }
+    this.phase = 'race'
+    this.lightsOutAt = 0
+    for (const e of this.entries) {
+      const [x, y] = this.line.points[best]
+      e.car = createCar(e.stats, x, y, this.line.dir[best])
+      e.car.id = e.index
+      e.car.speed = e.profile[best] * 0.85
+      e.idx = best
+      if (e.ai) e.ai.idx = best
+      e.timer = new LapTimer(this.loop, 0, { flying: true })
+      e.ai?.start(this.rng)
+    }
+    this.updateProgress()
   }
 
   makeEntry(index, isPlayer) {
@@ -75,17 +101,10 @@ export class RaceSim {
   }
 
   gridUp() {
-    const { n, step } = this.line
-    for (const e of this.entries) {
-      const pace = AI.pace(e.driver.rating)
-      let lap = 0
-      for (let i = 0; i < n; i++) lap += step / (e.profile[i] * pace)
-      lap *= 1 + (this.rng() - 0.5) * 0.012
-      const binChance = { clean: 0.03, normal: 0.07, ragged: 0.15 }[e.driver.consistency] ?? 0.07
-      if (this.rng() < binChance) lap *= 1.03 + this.rng() * 0.03
-      e.qualiLap = lap
-    }
-    const order = [...this.entries].sort((a, b) => a.qualiLap - b.qualiLap)
+    let indices = this.gridOrder
+    if (!indices) indices = gridOrder(simulateQualifying(this.entries, this.line, { rng: this.rng, difficulty: this.difficulty }))
+    const rank = new Map(indices.map((idx, pos) => [idx, pos]))
+    const order = [...this.entries].sort((a, b) => (rank.get(a.index) ?? 99) - (rank.get(b.index) ?? 99))
     order.forEach((e, pos) => {
       const slot = this.loop.grid[pos]
       e.grid = pos + 1
@@ -218,7 +237,6 @@ export class RaceSim {
     this.contacts++
     if (impact > 1) this.hardContacts = (this.hardContacts ?? 0) + 1
     if (impact < 1.8) return
-
     for (const car of [a, b]) {
       const e = this.entries.find((x) => x.car === car)
       if (!e || e.isPlayer) continue
@@ -269,9 +287,8 @@ export class RaceSim {
       const lap = e.timer?.lap ?? 0
       const next = e.timer?.next ?? 0
       if (next === 1 && dist > n / 2) dist -= n 
-      if (next === 0 && lap > 0 && dist < n / 2) dist += n 
-      if (lap === 0 && dist < n / 2) dist += n 
-      e.progress = lap * n + dist
+      if (next === 0 && lap > 0 && dist < n / 2) dist += n
+      if (lap === 0 && dist < n / 2) dist += n
     }
   }
 

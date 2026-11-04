@@ -21,6 +21,7 @@ const UNDO_LIMIT = 100
 const DRIVER_KEY = 'grand-prix.testDriver'
 const DIFFICULTY_KEY = 'grand-prix.difficulty'
 const ASSISTS_KEY = 'grand-prix.assists'
+const QUALI_KEY = 'grand-prix.qualifying'
 
 function loadAssists() {
   try {
@@ -66,8 +67,12 @@ export class Editor {
     this.driverIndex = loadDriverIndex()
     this.difficulty = loadDifficulty()
     this.assists = loadAssists()
+    this.qualifying = true
+    try {
+      this.qualifying = localStorage.getItem(QUALI_KEY) !== '0'
+    } catch {}
     this.track = store.loadDraft() ?? store.exampleTrack()
-    this.tool = 'straight'
+    this.tool = 'straight' // a piece type, or 'erase'
     this.rot = 0
     this.mirror = false
     this.zoom = DEFAULT_ZOOM
@@ -157,7 +162,7 @@ export class Editor {
                 <label><input type='checkbox' data-overlay='cars' /> Cars on the grid <kbd>V</kbd></label>
               </div>
               <div class='gp-zoom'>
-                <button data-action='zoom-out' title='Zoom out (−)'>−</button>
+                <button data-action='zoom-out' title='Zoom out (-)'>-</button>
                 <span id='gp-zoom-label'></span>
                 <button data-action='zoom-in' title='Zoom in (+)'>+</button>
                 <button data-action='fit' title='Fit map (0)'>Fit</button>
@@ -168,7 +173,7 @@ export class Editor {
               <h3>Controls</h3>
               <p><b>Left drag</b> paint · <b>Right drag</b> erase</p>
               <p><b>Middle drag</b> or <b>Space + drag</b> pan · <b>Wheel</b> zoom</p>
-              <p><kbd>1</kbd>–<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice · <kbd>W</kbd> watch</p>
+              <p><kbd>1</kbd>-<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice · <kbd>W</kbd> watch</p>
               <p>The start straight sets the racing direction: cars race towards the chequered line.</p>
             </section>
 
@@ -194,6 +199,9 @@ export class Editor {
               </select>
               <label class='gp-check' title='Racing line in green (flat out), amber (lift) and red (brake)'>
                 <input type='checkbox' id='gp-line' /> Braking line
+              </label>
+              <label class='gp-check' title='One timed lap decides your grid slot. Untick for a quick race from a simulated grid.'>
+                <input type='checkbox' id='gp-quali' /> One-shot qualifying
               </label>
               <button class='gp-test' data-action='race' id='gp-test' disabled>🏁 Race the field <kbd>T</kbd></button>
               <button class='gp-test gp-test--alt' data-action='practice' id='gp-practice' disabled>Solo practice <kbd>⇧T</kbd></button>
@@ -242,11 +250,13 @@ export class Editor {
       tv: $('#gp-tv'),
       brakeAssist: $('#gp-brake-assist'),
       line: $('#gp-line'),
+      quali: $('#gp-quali'),
     }
     this.el.driver.value = String(this.driverIndex)
     this.el.difficulty.value = this.difficulty
     this.el.brakeAssist.value = this.assists.brake
     this.el.line.checked = this.assists.line
+    this.el.quali.checked = this.qualifying
     this.ctx = this.el.canvas.getContext('2d')
   }
 
@@ -352,6 +362,13 @@ export class Editor {
     this.el.brakeAssist.addEventListener('change', () => {
       this.setAssists({ ...this.assists, brake: this.el.brakeAssist.value })
       this.el.brakeAssist.blur()
+    })
+    this.el.quali.addEventListener('change', () => {
+      this.qualifying = this.el.quali.checked
+      try {
+        localStorage.setItem(QUALI_KEY, this.qualifying ? '1' : '0')
+      } catch {}
+      this.el.quali.blur()
     })
     this.el.line.addEventListener('change', () => {
       this.setAssists({ ...this.assists, line: this.el.line.checked })
@@ -805,6 +822,7 @@ export class Editor {
       mode,
       difficulty: this.difficulty,
       assists: { ...this.assists },
+      qualifying: this.qualifying,
     })
   }
 
