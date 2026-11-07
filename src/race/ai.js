@@ -3,7 +3,6 @@ import { ROAD } from './surface.js'
 import { ROAD_WIDTH } from '../track/pieces.js'
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v)
-
 const PREDICT_SURFACE = {
   cols: 1e9,
   rows: 1e9,
@@ -14,21 +13,21 @@ const PREDICT_SURFACE = {
 }
 
 export const AI = {
-  gripUse: 0.92, 
-  steerUse: 0.6, 
-  brakeUse: 0.78, 
+  gripUse: 0.92,
+  steerUse: 0.6,
+  brakeUse: 0.78,
   steerOptions: [-1, -0.6, -0.3, -0.1, 0, 0.1, 0.3, 0.6, 1],
-  horizon: 0.5, 
+  horizon: 0.5,
   planSplit: 0.4,
-  headingWeight: 1.5, 
+  headingWeight: 1.5,
   predictStep: 1 / 30,
   decideEvery: 3,
-  laneLimit: ROAD_WIDTH / 2 - 0.13, 
-  edgeMargin: 0.13, 
+  laneLimit: ROAD_WIDTH / 2 - 0.13,
+  edgeMargin: 0.13,
   pace: (rating) => 0.94 + 0.007 * (rating - 5),
   mistakeRate: { clean: 0.0025, normal: 0.005, ragged: 0.01 },
-  lap1Factor: 3, 
-  pressureFactor: 2, 
+  lap1Factor: 3,
+  pressureFactor: 2,
   mistakeMix: [0.62, 0.3, 0.08],
   racecraft: {
     calm: { passGap: 0.7, commit: 0.55, followGap: 0.62 },
@@ -144,13 +143,11 @@ export function speedProfile(line, stats) {
   for (let i = 0; i < n; i++) {
     const k = Math.max(curv[i], 1e-4)
     const grip = Math.sqrt((stats.grip * AI.gripUse) / k)
-
     let s = stats.top
     for (let it = 0; it < 6; it++)
       s = Math.min(stats.top, (noseRate(s, stats.top) * AI.steerUse) / k)
     v[i] = Math.min(stats.top, grip, s)
   }
-
   const decel = PHYS.brake * AI.brakeUse + PHYS.coast
   for (let pass = 0; pass < 2; pass++) {
     for (let i = n - 1; i >= 0; i--) {
@@ -229,7 +226,6 @@ export class AIDriver {
       const dLat = lat - myLat
       const side = Math.abs(dLat)
       if (d > -0.6 && d < 0.25 && side < 0.45) pressure = true
-
       if (Math.abs(d) < 0.55 && side < 0.5) {
         if (dLat > 0) blocked.right = true
         else blocked.left = true
@@ -285,7 +281,6 @@ export class AIDriver {
       -0.6 * dt,
       0.6 * dt,
     )
-
     const half = ROAD_WIDTH / 2 - AI.edgeMargin
     const off = line.fromCentre[i]
     let lane = clamp(
@@ -298,6 +293,7 @@ export class AIDriver {
     const ahead = (i + Math.round((0.3 + car.speed * 0.08) / line.step)) % n
     let target = Math.min(this.profile[i], this.profile[ahead]) * paceNow
     target = Math.min(target, followSpeed)
+    if (ctx.maxSpeed != null) target = Math.min(target, ctx.maxSpeed)
     if (car.grassFrac > 0.4) target = Math.min(target, 3.2)
     let throttle = 0
     let brake = 0
@@ -328,7 +324,7 @@ export class AIDriver {
         if (then === first && first === 0 && this._zeroDone) continue
         const c = { ...car }
         let idx = this.idx
-        let cost = Math.abs(first - (this.steerChoice ?? 0)) * 0.02
+        let cost = Math.abs(first - (this.steerChoice ?? 0)) * 0.02 
         for (let k = 1; k <= steps; k++) {
           stepCar(
             c,

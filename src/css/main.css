@@ -1142,3 +1142,65 @@ kbd {
 .is-quali .gp-d-limits {
   display: none;
 }
+
+/* --- pit stops ------------------------------------------------------------ */
+
+.gp-d-pit b {
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+}
+
+.gp-d-pit b.is-open {
+  color: #3ad04f;
+}
+
+.gp-d-pit b.is-urgent {
+  color: var(--amber);
+  animation: gp-pit-blink 0.6s steps(2) infinite;
+}
+
+.gp-d-pit b.is-done {
+  color: #9fd8a8;
+}
+
+.gp-d-pit b.is-pen {
+  color: var(--red-soft);
+}
+
+@keyframes gp-pit-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.gp-d-tower em.pit {
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 2px;
+  background: #fff;
+  color: #111;
+  font-style: normal;
+  font-weight: 800;
+  font-size: 9.5px;
+}
+
+.gp-d-tower em.stopped {
+  margin-left: 3px;
+  font-style: normal;
+  font-size: 7px;
+  color: #9fd8a8;
+  vertical-align: middle;
+}
+
+.gp-d-results-card td.stop {
+  white-space: nowrap;
+}
+
+.gp-d-results-card tr.is-dsq td {
+  opacity: 0.55;
+}
+
+.gp-d-results-card tr.is-dsq td.p {
+  color: var(--red-soft);
+  opacity: 1;
+}

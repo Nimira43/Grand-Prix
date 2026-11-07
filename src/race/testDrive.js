@@ -15,16 +15,16 @@ import { BRAKE_ASSIST, brakingLine, LINE_COLOURS } from './assists.js'
 import { RaceAudio, ThemeMusic } from '../audio/engineAudio.js'
 
 const ZOOM_STEPS = [9, 8.25, 7.5, 6.75, 6, 5.5, 5, 4.5]
-const DEFAULT_ZOOM = 0 
+const DEFAULT_ZOOM = 0
 const ZOOM_KEY = 'grand-prix.raceZoomLevel'
 const STEP = 1 / 120
-const MARGIN = 2 
-const LOOK_AHEAD = 0.45 
+const MARGIN = 2
+const LOOK_AHEAD = 0.45
 const MAX_LEAD = 0.65
 const CHUNK = 400
-const CHUNK_MEMORY = 150_000_000 
-const AFTER_FLAG_SPEEDUP = 3 
-const PARTICLE_RANGE = 14 
+const CHUNK_MEMORY = 150_000_000
+const AFTER_FLAG_SPEEDUP = 3
+const PARTICLE_RANGE = 14
 
 function loadZoom() {
   try {
@@ -69,18 +69,19 @@ export class TestDrive {
     this.mode = mode
     this.difficulty = difficulty
     this.qualifying = qualifying && mode === 'race'
-    this.stage = 'race' 
+    this.stage = 'race'
     this.assists = {
       brake: BRAKE_ASSIST[assists.brake] ? assists.brake : 'off',
       line: !!assists.line,
     }
-    this.onAssistsChange = null 
+    this.onAssistsChange = null
     this.onExit = onExit
     this.surface = buildSurface(track)
     this.keys = { throttle: false, brake: false, left: false, right: false }
     this.zoom = loadZoom()
     this.chunks = new Map()
     this.chunkKey = ''
+
     this.audio = new RaceAudio()
     this.music = new ThemeMusic()
     this.buildDom()
@@ -115,6 +116,7 @@ export class TestDrive {
           <div class='gp-d-row'><span>Last</span><b data-hud='last'>-:--.---</b></div>
           <div class='gp-d-row'><span>Best</span><b data-hud='best'>-:--.---</b></div>
           ${this.isRace ? "<div class='gp-d-row gp-d-limits'><span>Limits</span><b data-hud='limits'></b></div>" : ''}
+          <div class='gp-d-row gp-d-pit'><span>Pit</span><b data-hud='pit'></b></div>
         </div>
         ${this.isRace ? "<ol class='gp-d-tower' data-hud='tower'></ol>" : ''}
       </div>
@@ -168,7 +170,7 @@ export class TestDrive {
           )
       })
     }
-    if (import.meta.env.DEV) window.__testDrive = this 
+    if (import.meta.env.DEV) window.__testDrive = this // handy in the console
   }
 
   bind() {
@@ -205,6 +207,7 @@ export class TestDrive {
       for (const k in this.keys) this.keys[k] = false
     }
     this.onResize = () => this.resize()
+    // Capture phase so the editor underneath never sees these keys.
     window.addEventListener('keydown', this.onKeyDown, true)
     window.addEventListener('keyup', this.onKeyUp, true)
     window.addEventListener('blur', this.onBlur)
@@ -233,14 +236,14 @@ export class TestDrive {
     this.sim = new RaceSim({
       loop: this.loop,
       surface: this.surface,
-      playerIndex: this.isTV ? null : this.driverIndex, 
+      playerIndex: this.isTV ? null : this.driverIndex,
       field: this.isRace,
       laps: this.track.laps,
       difficulty: this.difficulty,
       brakeAssist: this.assists.brake,
       grid,
+      start: this.track.startPiece,
     })
-
     this.me = this.isTV
       ? this.sim.entries.find((e) => e.index === this.driverIndex)
       : this.sim.player
@@ -260,7 +263,7 @@ export class TestDrive {
       loop: this.loop,
       surface: this.surface,
       playerIndex: this.driverIndex,
-      field: false, 
+      field: false,
       difficulty: this.difficulty,
       brakeAssist: this.assists.brake,
       flying: true,
@@ -271,7 +274,6 @@ export class TestDrive {
     this.setupView()
     this.hud.lights.classList.remove('is-visible')
     this.flash('ONE-SHOT QUALIFYING', 2.5)
-
     const field = new RaceSim({
       loop: this.loop,
       surface: this.surface,
@@ -285,7 +287,7 @@ export class TestDrive {
       difficulty: this.difficulty,
       key: JSON.stringify(this.track.toJSON().pieces),
     }).then((scale) => {
-      if (token !== this.qualiToken) return // restarted meanwhile
+      if (token !== this.qualiToken) return
       const others = field.entries.filter((e) => !e.isPlayer)
       this.qualiResults = simulateQualifying(others, field.line, {
         rng: Math.random,
@@ -382,6 +384,8 @@ export class TestDrive {
     this.limitsSeen = 0
     this.feed = []
     this.lapsSeen = 0
+    this.pitCall = null
+    this.stopShown = null
     this.towerKey = ''
     this.towerAt = -Infinity
     if (this.hud.tower) this.hud.tower.innerHTML = ''
@@ -411,10 +415,9 @@ export class TestDrive {
     const order = this.sim.standings()
     const i = order.indexOf(this.me)
     if (e.code === 'Escape') this.exit()
-    else if (e.code === 'KeyO')
-      this.follow(order[Math.max(0, i - 1)], true) 
+    else if (e.code === 'KeyO') this.follow(order[Math.max(0, i - 1)], true)
     else if (e.code === 'KeyP')
-      this.follow(order[Math.min(order.length - 1, i + 1)], true) 
+      this.follow(order[Math.min(order.length - 1, i + 1)], true)
     else if (e.code === 'KeyD') {
       this.director = !this.director
       this.directorAt = -Infinity
@@ -438,7 +441,7 @@ export class TestDrive {
     if (!entry || entry === this.me) return
     this.me = entry
     if (manual && this.director) {
-      this.director = false 
+      this.director = false
       this.flash('DIRECTOR OFF', 1)
     }
     this.lineRuns = brakingLine(entry.profile, this.sim.line, entry.stats.top)
@@ -466,11 +469,11 @@ export class TestDrive {
     let best = null
     let bestScore = Infinity
     for (let i = 0; i < order.length - 1; i++) {
-      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step 
+      const gap = (order[i].progress - order[i + 1].progress) * sim.line.step
       const score = gap * (1 + i * 0.08)
       if (score < bestScore) {
         bestScore = score
-        best = order[i + 1] 
+        best = order[i + 1]
       }
     }
     if (best) this.follow(best)
@@ -503,7 +506,14 @@ export class TestDrive {
 
     while (this.eventsSeen < sim.events.length) {
       const ev = sim.events[this.eventsSeen++]
-      if (ev.text === 'LIGHTS OUT!') this.flash('GO!', 0.8)
+      if (ev.private) {
+        if (ev.entry === this.me && !this.isTV)
+          this.flash(
+            ev.text,
+            2.2,
+            /DRIVE-THROUGH|PROBLEM/.test(ev.text) ? 'is-warn' : '',
+          )
+      } else if (ev.text === 'LIGHTS OUT!') this.flash('GO!', 0.8)
       else this.feed.push({ text: ev.text, until: sim.time + 3.5 })
     }
 
@@ -520,6 +530,7 @@ export class TestDrive {
       if (msg) this.flash(msg[0], 2.6, msg[1])
     }
 
+    this.pitCalls()
     if (this.isTV) this.runDirector()
 
     if (this.stage === 'quali' && this.me.timer?.laps.length >= 1) {
@@ -554,6 +565,36 @@ export class TestDrive {
       }
     }
     this.emitParticles(dt)
+  }
+
+  pitCalls() {
+    const sim = this.sim
+    const me = this.me
+    const w = sim.pitWindow
+    const rail = me.pit.rail
+    if (rail?.phase === 'box') this.stopShown = false
+    if (!rail && me.pit.last && this.stopShown === false) {
+      this.stopShown = true
+      const who = this.isTV ? `${me.driver.code} ` : ''
+      this.flash(
+        `${who}PIT STOP ${me.pit.last.time.toFixed(1)}s`,
+        2.4,
+        me.pit.last.fumble ? 'is-warn' : 'is-best',
+      )
+    }
+    if (!w || this.isTV || !me.timer || me.finished || me.pit.done) return
+    const lap = me.timer.lap
+    let call = null
+    if (lap === w.from && w.from !== w.to)
+      call = ['open', `PIT WINDOW OPEN · LAPS ${w.from}-${w.to}`, '']
+    if (lap === w.to)
+      call = ['last', 'LAST LAP TO PIT: BOX THIS LAP!', 'is-warn']
+    if (lap > w.to && !rail)
+      call = ['missed', 'NO PIT STOP: DISQUALIFIED', 'is-pen']
+    if (call && call[0] !== this.pitCall) {
+      this.pitCall = call[0]
+      this.flash(call[1], 3, call[2])
+    }
   }
 
   emitParticles(dt) {
@@ -596,7 +637,7 @@ export class TestDrive {
       if (car.slip > 0.85 && car.speed > 1.5)
         spray(rate(40), 'rgba(220,220,220,0.5)', 0.11, 0.6, 0.7)
       if (car.hitBarrier > 0.25) spray(6, '#222', 0.05, 2.5, 0.4)
-      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3) 
+      if (car.contact > 0.3) spray(3, '#d8d8d8', 0.035, 2, 0.3) // bits of carbon fibre
       car.contact = Math.max(0, (car.contact ?? 0) - dt * 4)
     }
 
@@ -724,7 +765,7 @@ export class TestDrive {
       this.chunkKey = key
     }
 
-    const ox = -Math.round(MARGIN * T) 
+    const ox = -Math.round(MARGIN * T)
     const oy = ox
     const left = this.cam.x * T - w / 2 - ox
     const top = this.cam.y * T - h / 2 - oy
@@ -745,7 +786,7 @@ export class TestDrive {
         const k = `${i},${j}`
         let chunk = this.chunks.get(k)
         if (chunk) {
-          this.chunks.delete(k) 
+          this.chunks.delete(k)
         } else {
           chunk = this.buildChunk(i, j, T, scale, -ox)
         }
@@ -839,6 +880,8 @@ export class TestDrive {
         ctx.restore()
       }
     }
+    for (const e of visible)
+      if (e.pit.rail?.phase === 'box') this.drawCrew(ctx, e, T)
     if (this.isRace) {
       ctx.font = `700 ${Math.round(Math.max(10, Math.min(15, T * 0.085)))}px 'Titillium Web', sans-serif`
       ctx.textAlign = 'center'
@@ -855,6 +898,57 @@ export class TestDrive {
     }
 
     this.drawMinimap()
+  }
+
+  drawCrew(ctx, e, T) {
+    const car = e.car
+    const r = e.pit.rail
+    const busy = r.wait > 0.35
+    const t = this.sim.time
+    ctx.save()
+    ctx.translate(car.x * T, car.y * T)
+    ctx.rotate(car.heading)
+    const spots = [
+      [0.12, -0.15],
+      [0.12, 0.15],
+      [-0.12, -0.15],
+      [-0.12, 0.15],
+      [0.29, 0],
+      [-0.29, 0],
+    ]
+    spots.forEach(([x, y], i) => {
+      const jig = busy ? Math.sin(t * 14 + i * 1.7) * 0.012 : 0
+      const away = busy ? 1 : 1.35
+      ctx.fillStyle = e.team.colour
+      ctx.beginPath()
+      ctx.arc((x * away + jig) * T, y * away * T, 0.045 * T, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)'
+      ctx.lineWidth = Math.max(1, 0.01 * T)
+      ctx.stroke()
+      ctx.fillStyle = e.team.accent ?? '#fff'
+      ctx.beginPath()
+      ctx.arc((x * away + jig) * T, y * away * T, 0.022 * T, 0, Math.PI * 2)
+      ctx.fill()
+    })
+    ctx.fillStyle = busy ? '#e8322b' : '#3ad04f'
+    ctx.beginPath()
+    ctx.arc(0.36 * T, -0.12 * T, 0.04 * T, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+
+    if (r.stopTime) {
+      const shown = Math.min(r.stopTime, r.stopTime - Math.max(0, r.wait))
+      ctx.font = `800 ${Math.round(Math.max(11, Math.min(17, T * 0.1)))}px 'Titillium Web', sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      const y = car.y * T + Math.max(12, 0.22 * T)
+      ctx.lineWidth = 3
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)'
+      ctx.strokeText(`${shown.toFixed(1)}s`, car.x * T, y)
+      ctx.fillStyle = r.fumble && r.wait > 0 ? '#ffb020' : '#ffffff'
+      ctx.fillText(`${shown.toFixed(1)}s`, car.x * T, y)
+    }
   }
 
   updateHud() {
@@ -911,6 +1005,8 @@ export class TestDrive {
       }
     }
 
+    this.updatePitRow()
+
     const lit =
       sim.phase === 'lights' ? 0 : Math.round(((car.rpm - 9000) / 6000) * 15)
     this.revLeds.forEach((led, i) => led.classList.toggle('on', i < lit))
@@ -946,6 +1042,46 @@ export class TestDrive {
     if (feedText !== this.feedText) {
       hud.feed.innerHTML = feedText
       this.feedText = feedText
+    }
+  }
+
+  updatePitRow() {
+    const el = this.hud.pit
+    if (!el) return
+    const sim = this.sim
+    const me = this.me
+    const w = sim.pitWindow
+    const rail = me.pit.rail
+    const lap = me.timer?.lap ?? 0
+    let text = ''
+    let cls = ''
+    if (!sim.pitLane) text = this.stage === 'race' ? 'NO PIT LANE' : '-'
+    else if (rail?.phase === 'box') [text, cls] = ['IN THE BOX', 'is-open']
+    else if (rail)
+      text = rail.phase === 'through' ? 'DRIVE-THROUGH' : 'LIMITER'
+    else if (!w)
+      text = me.pit.stops
+        ? `${me.pit.stops} STOP${me.pit.stops > 1 ? 'S' : ''}`
+        : sim.field
+          ? 'NOT NEEDED'
+          : 'OPEN'
+    else if (me.pit.done)
+      [text, cls] = [
+        `✓ L${me.pit.last.lap} · ${me.pit.last.time.toFixed(1)}s`,
+        'is-done',
+      ]
+    else if (lap < w.from) text = `LAPS ${w.from}-${w.to}`
+    else if (lap <= w.to)
+      [text, cls] = [
+        lap === w.to ? 'BOX THIS LAP!' : `OPEN · TO L${w.to}`,
+        lap === w.to ? 'is-urgent' : 'is-open',
+      ]
+    else [text, cls] = ['MISSED · DSQ', 'is-pen']
+    const key = text + cls
+    if (key !== el.dataset.key) {
+      el.dataset.key = key
+      el.textContent = text
+      el.className = cls
     }
   }
 
@@ -1010,7 +1146,7 @@ export class TestDrive {
 
   updateTower() {
     const sim = this.sim
-    if (sim.time - (this.towerAt ?? -1) < 0.15) return 
+    if (sim.time - (this.towerAt ?? -1) < 0.15) return
     this.towerAt = sim.time
     const order = sim.standings()
     const leader = order[0]
@@ -1023,9 +1159,14 @@ export class TestDrive {
             ? 'POLE'
             : ''
           : sim.gapText(e, leader)
+      const pit = e.pit.rail
+        ? "<em class='pit'>PIT</em>"
+        : sim.pitWindow && e.pit.done
+          ? "<em class='stopped'>●</em>"
+          : ''
       return `<li data-entry='${e.index}' class='${e === this.me ? 'is-me' : ''}${e.car.spin ? ' is-spin' : ''}'>
         <span class='p'>${i + 1}</span><i style='background:${e.team.colour}'></i>
-        <span class='c'>${e.driver.code}${e.limits.penalty ? `<em class='pen'>+${e.limits.penalty}s</em>` : ''}</span><span class='g'>${gap}</span></li>`
+        <span class='c'>${e.driver.code}${e.limits.penalty ? `<em class='pen'>+${e.limits.penalty}s</em>` : ''}${pit}</span><span class='g'>${gap}</span></li>`
     })
     const html = rows.join('')
     if (html !== this.towerKey) {
@@ -1059,11 +1200,17 @@ export class TestDrive {
       .map((r) => {
         const e = r.entry
         let time
-        if (r.pos === 1) time = formatTime(r.time)
+        if (r.dsq) time = 'DSQ'
+        else if (r.pos === 1) time = formatTime(r.time)
         else if (!e.finished) time = 'DNF'
         else if (r.laps < winner.timer.laps.length)
           time = `+${winner.timer.laps.length - r.laps} lap${winner.timer.laps.length - r.laps > 1 ? 's' : ''}`
         else time = `+${(r.time - winnerTime).toFixed(3)}`
+        const stop = r.dsq
+          ? "<em class='down'>no stop</em>"
+          : r.stop
+            ? `L${r.stop.lap} · ${r.stop.time.toFixed(1)}s${r.stop.fumble ? " <em class='down'>slow</em>" : ''}`
+            : ''
         const gained = e.grid - r.pos
         const delta =
           gained > 0
@@ -1071,14 +1218,15 @@ export class TestDrive {
             : gained < 0
               ? `<em class='down'>▼${-gained}</em>`
               : '<em>-</em>'
-        return `<tr class='${e === this.me ? 'is-me' : ''}'>
-          <td class='p'>${r.pos}</td>
+        return `<tr class='${e === this.me ? 'is-me' : ''}${r.dsq ? ' is-dsq' : ''}'>
+          <td class='p'>${r.dsq ? 'DSQ' : r.pos}</td>
           <td><i style='background:${e.team.colour}'></i>${esc(e.driver.name)}</td>
           <td class='t'>${esc(e.team.name)}</td>
           <td class='n'>${time}</td>
           <td class='n pen'>${r.penalty ? `+${r.penalty}s` : ''}</td>
           <td class='n${fastest === r ? ' fl' : ''}'>${formatTime(r.best)}</td>
-          <td class='n'>${e.grid} ${delta}</td>
+          ${sim.pitWindow ? `<td class='n stop'>${stop}</td>` : ''}
+          <td class='n'>${e.grid} ${r.dsq ? '' : delta}</td>
           <td class='n pts'>${r.points || ''}</td>
         </tr>`
       })
@@ -1087,16 +1235,15 @@ export class TestDrive {
       <div class='gp-d-results-card'>
         <h2>${esc(this.track.name)} <span>Race result</span></h2>
         <table>
-          <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Pen</th><th>Best lap</th><th>Grid</th><th>Pts</th></tr></thead>
+          <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Pen</th><th>Best lap</th>${sim.pitWindow ? '<th>Pit stop</th>' : ''}<th>Grid</th><th>Pts</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <p class='gp-d-results-foot'>
           ${fastest ? `Fastest lap: <b>${esc(fastest.entry.driver.name)}</b> ${formatTime(fastest.best)} · ` : ''}
-          Times include penalties · Points: ${POINTS.join('-')} · <kbd>R</kbd> race again · <kbd>Esc</kbd> editor
+          Times include penalties · ${sim.pitWindow ? `One stop required, laps ${sim.pitWindow.from}-${sim.pitWindow.to} · ` : ''}Points: ${POINTS.join('-')} · <kbd>R</kbd> race again · <kbd>Esc</kbd> editor
         </p>
       </div>`
     this.hud.results.classList.add('is-visible')
-    // Engines quieten, the theme tune comes in.
     this.audio.pause(true)
     if (!this.audio.muted) this.music.play()
   }
@@ -1132,12 +1279,11 @@ export class TestDrive {
     ctx.strokeStyle = '#e9ecf1'
     ctx.lineWidth = 2.5
     ctx.stroke()
-
     const f = this.loop.checkpoints[0]
     ctx.strokeStyle = '#e10600'
     ctx.lineWidth = 3
     ctx.beginPath()
-    const k = 7 / s 
+    const k = 7 / s
     ctx.moveTo(ox + (f.x - f.nx * k) * s, oy + (f.y - f.ny * k) * s)
     ctx.lineTo(ox + (f.x + f.nx * k) * s, oy + (f.y + f.ny * k) * s)
     ctx.stroke()
@@ -1160,7 +1306,7 @@ export class TestDrive {
       ctx.stroke()
     }
     for (const e of this.sim.entries) if (e !== this.me) dot(e, 3)
-    dot(this.me, 5.5) 
+    dot(this.me, 5.5)
   }
 }
 
@@ -1177,7 +1323,7 @@ function drawTyreWall(ctx, cols, rows, T) {
     ctx.fillStyle = Math.floor(i / 4) % 2 ? '#e10600' : '#f2f2f2'
     ctx.fill()
   }
-  const off = [-0.14, -0.38] 
+  const off = [-0.14, -0.38] // two rows of tyres
   for (const o of off) {
     let i = 0
     for (let x = o; x <= cols - o + 1e-6; x += gap) {

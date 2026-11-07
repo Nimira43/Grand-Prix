@@ -192,12 +192,12 @@ export const DRIVERS = [
     aggression: 'aggressive',
   },
   {
-    name: 'Ocon',
-    code: 'OCO',
+    name: 'Câmara',
+    code: 'CAM',
     team: 'haas',
     rating: 6,
-    consistency: 'normal',
-    aggression: 'normal',
+    consistency: 'clean',
+    aggression: 'normal'
   },
   {
     name: 'Bortoleto',

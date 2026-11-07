@@ -14,9 +14,10 @@ import { LapTimer } from './laps.js'
 import { applyBrakeAssist } from './assists.js'
 import { TrackLimits } from './trackLimits.js'
 import { simulateQualifying, gridOrder } from './qualifying.js'
+import { PIT, PitLane, pitWindow, stopTime, railGearbox } from './pits.js'
 
-const LIGHTS_ON = 0.6 
-const LIGHT_GAP = 1 
+const LIGHTS_ON = 0.6
+const LIGHT_GAP = 1
 const SPIN_TIME = 1.3
 
 export function makeRng(seed = Date.now()) {
@@ -43,6 +44,7 @@ export class RaceSim {
     brakeAssist = 'off',
     grid = null,
     flying = false,
+    start = null,
   }) {
     this.loop = loop
     this.surface = surface
@@ -60,11 +62,11 @@ export class RaceSim {
     this.time = 0
     this.phase = 'lights'
     this.lightsOutAt = LIGHTS_ON + LIGHT_GAP * 5 + 0.2 + this.rng() * 2.3
-    this.firstCross = new Map() 
+    this.firstCross = new Map()
     this.finishOrder = []
     this.flagTime = null
-    this.events = [] 
-    this.limitEvents = [] 
+    this.events = []
+    this.limitEvents = []
     this.contacts = 0
     this.touching = new Map()
     this.spins = 0
@@ -76,6 +78,48 @@ export class RaceSim {
     this.gridOrder = grid
     this.gridUp()
     if (flying) this.flyingStart()
+    this.setupPits(start, flying)
+  }
+
+  setupPits(start, flying) {
+    this.pitLane = null
+    this.pitWindow = null
+    if (!start || flying) return
+    const lane = new PitLane(start)
+    const mid = lane.at((lane.laneStart + lane.laneEnd) / 2)
+    const i = globalNearest(this.line, mid.x, mid.y)
+    if (Math.cos(this.line.dir[i] - mid.heading) < 0.5) return
+    this.pitLane = lane
+    this.pitJoinIdx = globalNearest(
+      this.line,
+      lane.joinPoint[0],
+      lane.joinPoint[1],
+    )
+    if (this.field) this.pitWindow = pitWindow(this.laps)
+    const w = this.pitWindow
+    for (const e of this.entries) {
+      e.pit.plan = null
+      if (!w || e.isPlayer) continue
+      const laps = []
+      for (let l = w.from; l <= w.to; l++) laps.push(l)
+      const weights = laps.map(
+        (l, k) => 1 + (k > 0 && k < laps.length - 1 ? 0.6 : 0),
+      )
+      let r = this.rng() * weights.reduce((a, b) => a + b, 0)
+      let k = 0
+      while (r > weights[k] && k < laps.length - 1) r -= weights[k++]
+      e.pit.plan = laps[k]
+    }
+  }
+
+  stopCounts(e, lap) {
+    if (!this.field) return true
+    const w = this.pitWindow
+    return !!w && !e.pit.done && lap >= w.from && lap <= w.to
+  }
+
+  owesStop(e) {
+    return !!this.pitWindow && !e.pit.done
   }
 
   flyingStart() {
@@ -131,6 +175,14 @@ export class RaceSim {
       lastCross: 0,
       grid: 0,
       limits: new TrackLimits(),
+      pit: {
+        plan: null,
+        done: false,
+        stops: 0,
+        rail: null,
+        last: null,
+        outUntil: 0,
+      },
     }
   }
 
@@ -185,18 +237,23 @@ export class RaceSim {
       this.event('LIGHTS OUT!')
     }
 
-    const others = this.entries.map((e) => ({
-      car: e.car,
-      idx: e.idx,
-      lateral: this.lateral(e),
-      speed: e.car.speed,
-    }))
+    const others = this.entries
+      .filter((e) => !e.pit.rail)
+      .map((e) => ({
+        car: e.car,
+        idx: e.idx,
+        lateral: this.lateral(e),
+        speed: e.car.speed,
+      }))
 
     for (const e of this.entries) {
       const car = e.car
       const x0 = car.x
       const y0 = car.y
-      if (car.spin) {
+      if (!e.pit.rail && this.pitLane && !car.spin) this.maybeEnterPits(e)
+      if (e.pit.rail) {
+        this.stepRails(e, dt)
+      } else if (car.spin) {
         this.stepSpin(car, dt)
       } else {
         let input
@@ -217,13 +274,17 @@ export class RaceSim {
             finished: e.finished,
             others,
             spinNow: () => this.spin(e, 'mistake'),
+            maxSpeed: this.pitApproachSpeed(e),
           }
           input = e.ai.drive(car, ctx, dt)
-          if (e.finished) input.throttle = Math.min(input.throttle, 0.6) // cool-down lap
+          if (e.finished) input.throttle = Math.min(input.throttle, 0.6)
         }
         stepCar(car, input, dt, this.surface)
       }
-      if (!e.isPlayer) e.idx = e.ai.idx
+      if (e.pit.rail) {
+        e.idx = nearestIndex(this.line, car.x, car.y, e.idx)
+        if (e.ai) e.ai.idx = e.idx
+      } else if (!e.isPlayer) e.idx = e.ai.idx
       else {
         e.idx = nearestIndex(this.line, car.x, car.y, e.idx)
         const p = this.line.points[e.idx]
@@ -234,7 +295,7 @@ export class RaceSim {
       const hit = e.timer.update(x0, y0, car.x, car.y, this.time, dt)
       if (hit) this.crossed(e)
 
-      if (!e.finished) {
+      if (!e.finished && !e.pit.rail && this.time > e.pit.outUntil) {
         const verdict = e.limits.update(
           e,
           this.line,
@@ -247,13 +308,199 @@ export class RaceSim {
     }
 
     resolveCollisions(
-      this.entries.map((e) => e.car),
+      this.entries.filter((e) => !e.pit.rail).map((e) => e.car),
       (a, b, impact) => this.contact(a, b, impact),
     )
     this.updateProgress()
     if (this.phase === 'race' && this.flagTime != null) {
       const allIn = this.entries.every((e) => e.finished)
       if (allIn || this.time > this.flagTime + 45) this.phase = 'done'
+    }
+  }
+
+  wantsToPit(e) {
+    if (e.isPlayer || !this.pitWindow || e.pit.done || e.finished || !e.timer)
+      return false
+    const lap = e.timer.lap
+    return lap >= e.pit.plan && lap <= this.pitWindow.to
+  }
+
+  toPitJoin(e) {
+    const n = this.line.n
+    return ((this.pitJoinIdx - e.idx + n) % n) * this.line.step
+  }
+
+  pitApproachSpeed(e) {
+    if (!this.wantsToPit(e)) return Infinity
+    const d = this.toPitJoin(e)
+    if (d > 15) return Infinity
+    return Math.sqrt(PIT.joinSpeed ** 2 + 2 * PIT.approachDecel * d)
+  }
+
+  maybeEnterPits(e) {
+    const lane = this.pitLane
+    const car = e.car
+    if (!e.timer || e.timer.lap < 1) return
+    if (this.phase !== 'race') return
+    let s = null
+    if (e.isPlayer) s = lane.turningIn(car.x, car.y, car.heading)
+    else if (this.wantsToPit(e)) {
+      const d = this.toPitJoin(e)
+      if (d < 0.25 || d > this.line.n * this.line.step - 0.4)
+        s = lane.nearest(car.x, car.y).s
+    }
+    if (s == null) return
+    const p = lane.at(s)
+    const lap = e.timer.lap
+    const counts = this.stopCounts(e, lap)
+    e.pit.rail = {
+      s,
+      s0: s,
+      ox: car.x - p.x,
+      oy: car.y - p.y,
+      phase: counts ? 'in' : 'through',
+      box: lane.boxes[e.driver.team],
+      wait: 0,
+      lap,
+      side: 0, // shift into the garage bay
+      speed: car.speed,
+    }
+    car.spin = null
+    if (e.isPlayer) {
+      if (counts) this.event('PIT LANE · LIMITER ON', e, true)
+      else if (e.pit.done)
+        this.event("DRIVE-THROUGH: YOU'VE ALREADY STOPPED", e, true)
+      else if (!this.pitWindow)
+        this.event('DRIVE-THROUGH: NO STOP NEEDED', e, true)
+      else
+        this.event(
+          `DRIVE-THROUGH: PIT WINDOW IS LAPS ${this.pitWindow.from}–${this.pitWindow.to}`,
+          e,
+          true,
+        )
+    }
+  }
+
+  stepRails(e, dt) {
+    const lane = this.pitLane
+    const r = e.pit.rail
+    const car = e.car
+    let v = r.speed
+    if (r.phase === 'box') {
+      v = 0
+      r.wait -= dt
+      if (r.wait <= 0) {
+        r.phase = 'out'
+        if (e.isPlayer) this.event('GO, GO, GO!', e, true)
+      }
+    } else {
+      let want =
+        r.s < lane.laneStart
+          ? Math.sqrt(
+              PIT.limiter ** 2 + 2 * PIT.entryDecel * (lane.laneStart - r.s),
+            )
+          : PIT.limiter
+      if (r.s > lane.laneEnd) want = Infinity
+      if (r.phase === 'in')
+        want = Math.min(
+          want,
+          Math.sqrt(2 * PIT.boxDecel * Math.max(0, r.box - r.s)),
+        )
+      for (const o of this.entries) {
+        const q = o.pit.rail
+        if (!q || o === e || q.s <= r.s) continue
+        if (q.side > 0.05 && o.driver.team !== e.driver.team) continue
+        if (q.phase === 'box' && o.driver.team !== e.driver.team) continue
+        const gap = q.s - r.s - PIT.gap
+        want = Math.min(
+          want,
+          q.speed +
+            Math.sqrt(2 * PIT.boxDecel * Math.max(0, gap)) -
+            (gap < 0 ? 1 : 0),
+        )
+      }
+      want = Math.max(0, want)
+      if (v > want) v = Math.max(want, v - PIT.hardDecel * dt)
+      else
+        v = Math.min(
+          want,
+          v + (r.s > lane.laneEnd ? PIT.exitAccel * 2.5 : PIT.exitAccel) * dt,
+          r.s > lane.laneEnd ? car.stats.top : Infinity,
+        )
+      r.s += v * dt
+      if (r.phase === 'in' && r.s >= r.box - 0.02 && v < 0.6) {
+        r.s = r.box
+        v = 0
+        r.phase = 'box'
+        const st = stopTime(e.team, this.rng)
+        r.wait = st.time
+        r.stopTime = st.time
+        r.fumble = st.fumble
+        e.pit.stops++
+        e.pit.done = true
+        e.pit.last = { lap: r.lap, time: st.time, fumble: st.fumble }
+        const name = e.driver.name.toUpperCase()
+        if (!e.isPlayer && this.field)
+          this.event(
+            st.fumble
+              ? `${name}: SLOW STOP (${st.time.toFixed(1)}s)`
+              : `${name} PITS (${st.time.toFixed(1)}s)`,
+          )
+        else if (e.isPlayer && st.fumble)
+          this.event('PROBLEM WITH THE WHEEL NUT!', e, true)
+      }
+    }
+    r.speed = v
+    const nearBox =
+      r.phase === 'in' || r.phase === 'box'
+        ? Math.max(0, 1 - Math.abs(r.box - r.s) / 0.5)
+        : 0
+    const sideWant = r.phase === 'box' ? 1 : nearBox
+    r.side += Math.max(-dt * 2.5, Math.min(dt * 2.5, sideWant - r.side))
+
+    const p = lane.at(r.s)
+    const fade = Math.max(0, 1 - (r.s - r.s0) / 1.0)
+    const bx = p.x + r.ox * fade
+    const by = p.y + r.oy * fade
+    const nx = bx + lane.garageDir[0] * r.side * PIT.baySide
+    const ny = by + lane.garageDir[1] * r.side * PIT.baySide
+    const mx = bx - (r.bx ?? car.x)
+    const my = by - (r.by ?? car.y)
+    r.bx = bx
+    r.by = by
+    if (mx * mx + my * my > 1e-8) {
+      const moveDir = fade > 0 ? Math.atan2(my, mx) : p.heading
+      const d = Math.atan2(
+        Math.sin(moveDir - car.heading),
+        Math.cos(moveDir - car.heading),
+      )
+      car.heading += d * Math.min(1, dt * 12)
+    }
+    car.x = nx
+    car.y = ny
+    car.speed = v
+    car.travel = car.heading
+    car.slip = 0
+    car.steer = 0
+    car.throttle = r.phase === 'box' ? 0 : 0.3
+    car.grassFrac = 0
+    railGearbox(car)
+    if (r.s >= lane.exitAt) this.releaseFromPits(e)
+  }
+
+  releaseFromPits(e) {
+    const car = e.car
+    const p = this.pitLane.at(this.pitLane.exitAt)
+    car.heading = p.heading
+    car.travel = p.heading
+    car.steer = 0
+    e.pit.rail = null
+    e.pit.outUntil = this.time + 1
+    e.idx = globalNearest(this.line, car.x, car.y)
+    if (e.ai) {
+      e.ai.idx = e.idx
+      e.ai.lane = 0
+      e.ai.laneTarget = 0
     }
   }
 
@@ -296,7 +543,6 @@ export class RaceSim {
     this.contacts++
     if (impact > 1) this.hardContacts = (this.hardContacts ?? 0) + 1
     if (impact < 1.8) return
-
     for (const car of [a, b]) {
       const e = this.entries.find((x) => x.car === car)
       if (!e || e.isPlayer) continue
@@ -315,7 +561,7 @@ export class RaceSim {
     e.lastKey = key
     e.lastCross = this.time
     if (gate !== 0 || !this.field || e.finished) return
-    
+
     const done = t.laps.length >= this.laps
     if (done || this.flagTime != null) {
       if (this.flagTime == null) {
@@ -325,13 +571,15 @@ export class RaceSim {
       e.finished = true
       e.finishTime = this.time - this.lightsOutAt
       this.finishOrder.push(e)
+      if (this.owesStop(e))
+        this.event(`${e.driver.name.toUpperCase()} DISQUALIFIED: NO PIT STOP`)
     }
   }
 
   trackLimits(e, verdict) {
     e.timer.invalidate()
     this.limitEvents.push({ entry: e, verdict, time: this.time })
-    if (e.isPlayer) return 
+    if (e.isPlayer) return
     const name = e.driver.name.toUpperCase()
     if (verdict.kind === 'cut')
       this.event(`${name}: ${verdict.seconds}-SEC PENALTY (CUTTING THE TRACK)`)
@@ -355,13 +603,12 @@ export class RaceSim {
       let dist = (e.idx - this.finishIdx + n) % n
       const lap = e.timer?.lap ?? 0
       const next = e.timer?.next ?? 0
-      if (next === 1 && dist > n / 2) dist -= n 
-      if (next === 0 && lap > 0 && dist < n / 2) dist += n 
-      if (lap === 0 && dist < n / 2) dist += n 
+      if (next === 1 && dist > n / 2) dist -= n
+      if (next === 0 && lap > 0 && dist < n / 2) dist += n
+      if (lap === 0 && dist < n / 2) dist += n
       e.progress = lap * n + dist
     }
   }
-
 
   standings() {
     const running = this.entries
@@ -387,29 +634,36 @@ export class RaceSim {
   }
 
   results() {
+    const dsq = (e) => this.owesStop(e)
     const finished = this.entries
-      .filter((e) => e.finished)
+      .filter((e) => e.finished && !dsq(e))
       .sort(
         (a, b) =>
           b.timer.laps.length - a.timer.laps.length ||
           a.finishTime + a.limits.penalty - (b.finishTime + b.limits.penalty),
       )
     const running = this.entries
-      .filter((e) => !e.finished)
+      .filter((e) => !e.finished && !dsq(e))
       .sort((a, b) => b.progress - a.progress)
-    return [...finished, ...running].map((e, i) => ({
+    const out = this.entries
+      .filter(dsq)
+      .sort((a, b) => b.progress - a.progress)
+    return [...finished, ...running, ...out].map((e, i) => ({
       pos: i + 1,
       entry: e,
-      points: e.finished ? (POINTS[i] ?? 0) : 0,
+      points: e.finished && !dsq(e) ? (POINTS[i] ?? 0) : 0,
       best: e.timer?.bestLap ?? null,
       laps: e.timer?.laps.length ?? 0,
       penalty: e.limits.penalty,
-      time: e.finished ? e.finishTime + e.limits.penalty : null, 
-      crossed: e.finished ? this.finishOrder.indexOf(e) + 1 : null, 
+      time: e.finished ? e.finishTime + e.limits.penalty : null,
+      crossed: e.finished ? this.finishOrder.indexOf(e) + 1 : null,
+      dsq: dsq(e),
+      stops: e.pit.stops,
+      stop: e.pit.last,
     }))
   }
 
-  event(text) {
-    this.events.push({ time: this.time, text })
+  event(text, entry = null, isPrivate = false) {
+    this.events.push({ time: this.time, text, entry, private: isPrivate })
   }
 }

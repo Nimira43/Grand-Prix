@@ -139,12 +139,12 @@ function startDetails(ctx) {
   ctx.lineWidth = 0.06
   ctx.strokeStyle = '#d9d9d9'
   ctx.stroke()
+
   const g0 = 1.9
   const g1 = 8.1
   ctx.fillStyle = COLOURS.garageRoof
   ctx.fillRect(g0, 0.03, g1 - g0, 0.26)
   const gw = (g1 - g0) / TEAM_ORDER.length
-
   TEAM_ORDER.forEach((id, i) => {
     const team = TEAMS[id]
     const x = g0 + i * gw + 0.04
@@ -153,6 +153,27 @@ function startDetails(ctx) {
     ctx.fillStyle = team.accent
     ctx.fillRect(x, 0.2, gw - 0.08, 0.04)
   })
+
+  const laneV = START_LAYOUT.pitLane[1][1]
+  const laneHalf = START_LAYOUT.pitLaneWidth / 2
+  TEAM_ORDER.forEach((id, i) => {
+    const team = TEAMS[id]
+    const cu = g0 + gw * (i + 0.5)
+    ctx.fillStyle = team.colour
+    ctx.fillRect(cu - gw / 2 + 0.07, laneV - laneHalf + 0.005, gw - 0.14, 0.03)
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'
+    ctx.fillRect(cu + 0.2, laneV - laneHalf + 0.005, 0.02, 0.1) // where the nose stops
+  })
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 0.025
+  ctx.setLineDash([0.04, 0.03])
+  for (const [u] of [START_LAYOUT.pitLane[1], START_LAYOUT.pitLane[2]]) {
+    ctx.beginPath()
+    ctx.moveTo(u, laneV - laneHalf)
+    ctx.lineTo(u, laneV + laneHalf)
+    ctx.stroke()
+  }
+  ctx.setLineDash([])
 
   ctx.strokeStyle = COLOURS.edge
   ctx.lineWidth = 0.035
