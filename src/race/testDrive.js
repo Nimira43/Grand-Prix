@@ -57,6 +57,10 @@ export class TestDrive {
     difficulty = 'normal',
     assists = {},
     qualifying = true,
+    laps = null,
+    round = null,
+    onResult = null,
+    exitLabel = 'editor',
     onExit,
   }) {
     this.track = track
@@ -76,12 +80,15 @@ export class TestDrive {
     }
     this.onAssistsChange = null
     this.onExit = onExit
+    this.laps = laps ?? track.laps
+    this.round = round
+    this.onResult = onResult
+    this.exitLabel = exitLabel
     this.surface = buildSurface(track)
     this.keys = { throttle: false, brake: false, left: false, right: false }
     this.zoom = loadZoom()
     this.chunks = new Map()
     this.chunkKey = ''
-
     this.audio = new RaceAudio()
     this.music = new ThemeMusic()
     this.buildDom()
@@ -143,8 +150,8 @@ export class TestDrive {
       <div class='gp-d-help'>
         ${
           this.isTV
-            ? '<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · <kbd>R</kbd> restart · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
-            : '<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> editor'
+            ? `<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · ${this.round ? '' : '<kbd>R</kbd> restart · '}<kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> ${this.exitLabel}`
+            : `<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · ${this.round ? '' : '<kbd>R</kbd> restart · '}<kbd>+</kbd><kbd>−</kbd> zoom · <kbd>W</kbd> pit · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> ${this.exitLabel}`
         }
       </div>
 
@@ -175,6 +182,7 @@ export class TestDrive {
 
   bind() {
     this.onKeyDown = (e) => {
+      e.stopPropagation()
       if (this.isTV) return this.onTVKey(e)
       if (STEER_KEYS[e.code]) {
         this.keys[STEER_KEYS[e.code]] = true
@@ -182,6 +190,7 @@ export class TestDrive {
         return
       }
       if (e.repeat) return
+      if (this.round && this.roundKey(e)) return e.preventDefault()
       if (e.code === 'Escape') this.exit()
       else if (e.code === 'KeyR') this.reset()
       else if (
@@ -197,6 +206,7 @@ export class TestDrive {
       else if (e.code === 'KeyM') this.toggleSound()
       else if (e.code === 'KeyB') this.cycleBrakeAssist()
       else if (e.code === 'KeyL') this.toggleLine()
+      else if (e.code === 'KeyW') this.pitButton()
       else return
       e.preventDefault()
     }
@@ -207,11 +217,40 @@ export class TestDrive {
       for (const k in this.keys) this.keys[k] = false
     }
     this.onResize = () => this.resize()
-    // Capture phase so the editor underneath never sees these keys.
     window.addEventListener('keydown', this.onKeyDown, true)
     window.addEventListener('keyup', this.onKeyUp, true)
     window.addEventListener('blur', this.onBlur)
     window.addEventListener('resize', this.onResize)
+  }
+
+  roundKey(e) {
+    if (this.resultsShown) {
+      if (
+        e.code === 'Enter' ||
+        e.code === 'NumpadEnter' ||
+        e.code === 'Escape'
+      ) {
+        if (!this.resultSent) {
+          this.resultSent = true
+          this.onResult?.(this.sim.results())
+        }
+        this.exit()
+        return true
+      }
+      return e.code === 'KeyR'
+    }
+    if (e.code === 'Escape') {
+      if (this.sim.time - (this.escAt ?? -Infinity) < 2.5 || this.paused)
+        return (this.exit(), true)
+      this.escAt = this.sim.time
+      this.flash("ESC AGAIN TO LEAVE: THIS ROUND WON'T COUNT", 2.5, 'is-warn')
+      return true
+    }
+    if (e.code === 'KeyR') {
+      this.flash('NO RESTARTS IN A CHAMPIONSHIP', 1.6, 'is-warn')
+      return true
+    }
+    return false
   }
 
   exit() {
@@ -238,7 +277,7 @@ export class TestDrive {
       surface: this.surface,
       playerIndex: this.isTV ? null : this.driverIndex,
       field: this.isRace,
-      laps: this.track.laps,
+      laps: this.laps,
       difficulty: this.difficulty,
       brakeAssist: this.assists.brake,
       grid,
@@ -274,6 +313,7 @@ export class TestDrive {
     this.setupView()
     this.hud.lights.classList.remove('is-visible')
     this.flash('ONE-SHOT QUALIFYING', 2.5)
+
     const field = new RaceSim({
       loop: this.loop,
       surface: this.surface,
@@ -287,7 +327,7 @@ export class TestDrive {
       difficulty: this.difficulty,
       key: JSON.stringify(this.track.toJSON().pieces),
     }).then((scale) => {
-      if (token !== this.qualiToken) return
+      if (token !== this.qualiToken) return // restarted meanwhile
       const others = field.entries.filter((e) => !e.isPlayer)
       this.qualiResults = simulateQualifying(others, field.line, {
         rng: Math.random,
@@ -362,7 +402,7 @@ export class TestDrive {
           <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Gap</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <p class='gp-d-results-foot'><kbd>Enter</kbd> start the race · <kbd>R</kbd> qualify again · <kbd>Esc</kbd> editor</p>
+        <p class='gp-d-results-foot'><kbd>Enter</kbd> start the race · ${this.round ? '' : '<kbd>R</kbd> qualify again · '}<kbd>Esc</kbd> ${this.exitLabel}</p>
       </div>`
     this.hud.results.classList.add('is-visible')
   }
@@ -412,6 +452,7 @@ export class TestDrive {
 
   onTVKey(e) {
     if (e.repeat && e.code !== 'KeyO' && e.code !== 'KeyP') return
+    if (this.round && this.roundKey(e)) return e.preventDefault()
     const order = this.sim.standings()
     const i = order.indexOf(this.me)
     if (e.code === 'Escape') this.exit()
@@ -567,6 +608,27 @@ export class TestDrive {
     this.emitParticles(dt)
   }
 
+  pitButton() {
+    if (this.stage !== 'race') return
+    const sim = this.sim
+    const me = this.me
+    const on = sim.requestPit(me)
+    if (on == null) return
+    if (!on) return this.flash('PIT CANCELLED', 1.5)
+    const w = sim.pitWindow
+    const lap = sim.nextPitLap(me)
+    let note = ''
+    if (w && me.pit.done) note = ' (DRIVE-THROUGH: ALREADY STOPPED)'
+    else if (w && lap > w.to) note = ' (TOO LATE: DRIVE-THROUGH)'
+    else if (w && lap < w.from)
+      note = ` (DRIVE-THROUGH: WINDOW IS LAPS ${w.from}-${w.to})`
+    this.flash(
+      `BOX, BOX! PITTING NEXT TIME BY${note} · W TO CANCEL`,
+      2.5,
+      note ? 'is-warn' : '',
+    )
+  }
+
   pitCalls() {
     const sim = this.sim
     const me = this.me
@@ -586,9 +648,13 @@ export class TestDrive {
     const lap = me.timer.lap
     let call = null
     if (lap === w.from && w.from !== w.to)
-      call = ['open', `PIT WINDOW OPEN · LAPS ${w.from}-${w.to}`, '']
-    if (lap === w.to)
-      call = ['last', 'LAST LAP TO PIT: BOX THIS LAP!', 'is-warn']
+      call = [
+        'open',
+        `PIT WINDOW OPEN · LAPS ${w.from}-${w.to} · PRESS W TO BOX`,
+        '',
+      ]
+    if (lap === w.to && !me.pit.request)
+      call = ['last', 'LAST LAP TO PIT: PRESS W TO BOX!', 'is-warn']
     if (lap > w.to && !rail)
       call = ['missed', 'NO PIT STOP: DISQUALIFIED', 'is-pen']
     if (call && call[0] !== this.pitCall) {
@@ -1059,6 +1125,7 @@ export class TestDrive {
     else if (rail?.phase === 'box') [text, cls] = ['IN THE BOX', 'is-open']
     else if (rail)
       text = rail.phase === 'through' ? 'DRIVE-THROUGH' : 'LIMITER'
+    else if (me.pit.request) [text, cls] = ['BOX REQUESTED', 'is-urgent']
     else if (!w)
       text = me.pit.stops
         ? `${me.pit.stops} STOP${me.pit.stops > 1 ? 'S' : ''}`
@@ -1233,14 +1300,14 @@ export class TestDrive {
       .join('')
     this.hud.results.innerHTML = `
       <div class='gp-d-results-card'>
-        <h2>${esc(this.track.name)} <span>Race result</span></h2>
+        <h2>${esc(this.track.name)} <span>${this.round ? `${esc(this.round.label)} · ` : ''}Race result</span></h2>
         <table>
           <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Pen</th><th>Best lap</th>${sim.pitWindow ? '<th>Pit stop</th>' : ''}<th>Grid</th><th>Pts</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <p class='gp-d-results-foot'>
           ${fastest ? `Fastest lap: <b>${esc(fastest.entry.driver.name)}</b> ${formatTime(fastest.best)} · ` : ''}
-          Times include penalties · ${sim.pitWindow ? `One stop required, laps ${sim.pitWindow.from}-${sim.pitWindow.to} · ` : ''}Points: ${POINTS.join('-')} · <kbd>R</kbd> race again · <kbd>Esc</kbd> editor
+          Times include penalties · ${sim.pitWindow ? `One stop required, laps ${sim.pitWindow.from}-${sim.pitWindow.to} · ` : ''}Points: ${POINTS.join('-')} · ${this.round ? '<kbd>Enter</kbd> continue to the standings' : `<kbd>R</kbd> race again · <kbd>Esc</kbd> ${this.exitLabel}`}
         </p>
       </div>`
     this.hud.results.classList.add('is-visible')
@@ -1323,7 +1390,7 @@ function drawTyreWall(ctx, cols, rows, T) {
     ctx.fillStyle = Math.floor(i / 4) % 2 ? '#e10600' : '#f2f2f2'
     ctx.fill()
   }
-  const off = [-0.14, -0.38] // two rows of tyres
+  const off = [-0.14, -0.38]
   for (const o of off) {
     let i = 0
     for (let x = o; x <= cols - o + 1e-6; x += gap) {

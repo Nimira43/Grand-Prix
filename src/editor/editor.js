@@ -54,7 +54,7 @@ const esc = (s) =>
   String(s).replace(
     /[&<>'']/g,
     (c) =>
-      ({ '&': '&amp', '<': '&lt', '>': '&gt', '"': '&quot', "'": '&#39' })[
+      ({ '&': '&amp', '<': '&lt', '>': '&gt', "'": '&quot', "'": '&#39' })[
         c
       ],
   )
@@ -64,6 +64,7 @@ export class Editor {
     this.root = root
     this.active = true
     this.onTestDrive = null
+    this.onMenu = null
     this.driverIndex = loadDriverIndex()
     this.difficulty = loadDifficulty()
     this.assists = loadAssists()
@@ -107,6 +108,7 @@ export class Editor {
       <div class='gp-editor'>
         <header class='gp-bar'>
           <div class='gp-brand'>
+            <button data-action='menu' class='gp-menu-btn' title='Back to the title screen'>‹ Menu</button>
             <span class='gp-logo'>GRAND PRIX</span>
             <span class='gp-sub'>Track Editor</span>
           </div>
@@ -162,7 +164,7 @@ export class Editor {
                 <label><input type='checkbox' data-overlay='cars' /> Cars on the grid <kbd>V</kbd></label>
               </div>
               <div class='gp-zoom'>
-                <button data-action='zoom-out' title='Zoom out (-)'>-</button>
+                <button data-action='zoom-out' title='Zoom out (−)'>−</button>
                 <span id='gp-zoom-label'></span>
                 <button data-action='zoom-in' title='Zoom in (+)'>+</button>
                 <button data-action='fit' title='Fit map (0)'>Fit</button>
@@ -173,7 +175,7 @@ export class Editor {
               <h3>Controls</h3>
               <p><b>Left drag</b> paint · <b>Right drag</b> erase</p>
               <p><b>Middle drag</b> or <b>Space + drag</b> pan · <b>Wheel</b> zoom</p>
-              <p><kbd>1</kbd>-<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice · <kbd>W</kbd> watch</p>
+              <p><kbd>1</kbd>–<kbd>7</kbd> pieces · <kbd>E</kbd> eraser · <kbd>R</kbd> rotate · <kbd>F</kbd> flip · <kbd>T</kbd> race · <kbd>⇧T</kbd> practice · <kbd>W</kbd> watch</p>
               <p>The start straight sets the racing direction: cars race towards the chequered line.</p>
             </section>
 
@@ -480,6 +482,8 @@ export class Editor {
         return this.startTestDrive('practice')
       case 'tv':
         return this.startTestDrive('tv')
+      case 'menu':
+        return this.onMenu?.()
     }
   }
 
@@ -756,6 +760,21 @@ export class Editor {
     this.syncInputs()
     this.trackChanged()
     this.fit()
+  }
+
+  freshTrack() {
+    this.lastSavedName = null
+    this.replaceTrack(
+      new Track({ cols: this.track.cols, rows: this.track.rows }),
+    )
+  }
+
+  setVisible(on) {
+    this.active = on
+    this.root.style.display = on ? '' : 'none'
+    if (on) {
+      this.resize()
+    }
   }
 
   newTrack() {
@@ -1067,7 +1086,7 @@ export class Editor {
     ctx.strokeStyle = 'rgba(255, 214, 0, 0.85)'
     ctx.lineWidth = Math.max(1.5, T * 0.04)
     ctx.setLineDash([T * 0.25, T * 0.18])
-    ctx.lineDashOffset = -(time / 40) % (T * 0.43)
+    ctx.lineDashOffset = -(time / 40) % (T * 0.43) // marches in the racing direction
     ctx.stroke()
     ctx.setLineDash([])
 
