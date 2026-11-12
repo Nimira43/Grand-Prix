@@ -46,6 +46,11 @@ const STEER_KEYS = {
   KeyP: 'right',
 }
 
+const helmetDot = (d) =>
+  d.helmet
+    ? `<b class='hm' style='background:linear-gradient(${d.helmet[0]} 38%, ${d.helmet[1]} 38% 62%, ${d.helmet[0]} 62%)'></b>`
+    : ''
+
 const esc = (s) =>
   String(s).replace(/[&<>'']/g, (c) => `&#${c.charCodeAt(0)}`)
 
@@ -61,8 +66,12 @@ export class TestDrive {
     round = null,
     onResult = null,
     exitLabel = 'editor',
+    seats = null, 
+    prequal = false, 
     onExit,
   }) {
+    this.seats = seats
+    this.prequal = prequal
     this.track = track
     this.analysis = analyseTrack(track)
     if (!this.analysis.ok) throw new Error('Circuit is not raceable')
@@ -150,8 +159,8 @@ export class TestDrive {
       <div class='gp-d-help'>
         ${
           this.isTV
-            ? `<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · ${this.round ? '' : '<kbd>R</kbd> restart · '}<kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> ${this.exitLabel}`
-            : `<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · ${this.round ? '' : '<kbd>R</kbd> restart · '}<kbd>+</kbd><kbd>−</kbd> zoom · <kbd>W</kbd> pit · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> ${this.exitLabel}`
+            ? `<kbd>O</kbd><kbd>P</kbd> car ahead / behind · click the tower to follow · <kbd>D</kbd> director · <kbd>F</kbd> fast-forward · <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>L</kbd> line · ${this.round && !this.round.allowRestart ? '' : '<kbd>R</kbd> restart · '}<kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> ${this.exitLabel}`
+            : `<kbd>Q</kbd> accelerate · <kbd>A</kbd> brake · <kbd>O</kbd> left · <kbd>P</kbd> right · ${this.round && !this.round.allowRestart ? '' : '<kbd>R</kbd> restart · '}<kbd>+</kbd><kbd>−</kbd> zoom · <kbd>W</kbd> pit · <kbd>B</kbd> brake assist · <kbd>L</kbd> line · <kbd>M</kbd> sound · <kbd>Space</kbd> pause · <kbd>Esc</kbd> ${this.exitLabel}`
         }
       </div>
 
@@ -237,6 +246,7 @@ export class TestDrive {
         this.exit()
         return true
       }
+      if (e.code === 'KeyR' && this.round.allowRestart) return (this.reset(), true)
       return e.code === 'KeyR'
     }
     if (e.code === 'Escape') {
@@ -246,7 +256,7 @@ export class TestDrive {
       this.flash("ESC AGAIN TO LEAVE: THIS ROUND WON'T COUNT", 2.5, 'is-warn')
       return true
     }
-    if (e.code === 'KeyR') {
+    if (e.code === 'KeyR' && !this.round.allowRestart) {
       this.flash('NO RESTARTS IN A CHAMPIONSHIP', 1.6, 'is-warn')
       return true
     }
@@ -282,9 +292,12 @@ export class TestDrive {
       brakeAssist: this.assists.brake,
       grid,
       start: this.track.startPiece,
+      seats: this.seats ?? undefined,
+      points: this.prequal ? [] : POINTS,
     })
     this.me = this.isTV
-      ? this.sim.entries.find((e) => e.index === this.driverIndex)
+      ? (this.sim.entries.find((e) => e.index === this.driverIndex) ??
+        this.sim.entries[0])
       : this.sim.player
     this.setupView()
     this.hud.lights.classList.add('is-visible')
@@ -319,6 +332,7 @@ export class TestDrive {
       surface: this.surface,
       playerIndex: this.driverIndex,
       difficulty: this.difficulty,
+      seats: this.seats ?? undefined,
     })
     const token = (this.qualiToken = {})
     calibrate({
@@ -402,7 +416,7 @@ export class TestDrive {
           <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Gap</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <p class='gp-d-results-foot'><kbd>Enter</kbd> start the race · ${this.round ? '' : '<kbd>R</kbd> qualify again · '}<kbd>Esc</kbd> ${this.exitLabel}</p>
+        <p class='gp-d-results-foot'><kbd>Enter</kbd> start the race · ${this.round && !this.round.allowRestart ? '' : '<kbd>R</kbd> qualify again · '}<kbd>Esc</kbd> ${this.exitLabel}</p>
       </div>`
     this.hud.results.classList.add('is-visible')
   }
@@ -934,7 +948,7 @@ export class TestDrive {
         ctx.fillStyle = 'rgba(255,255,255,0.13)'
         ctx.fill()
       }
-      drawCar(ctx, car.x, car.y, car.heading, e.driver.team, T)
+      drawCar(ctx, car.x, car.y, car.heading, e.driver.team, T, e.driver.helmet)
       if (car.braking) {
         ctx.save()
         ctx.translate(car.x * T, car.y * T)
@@ -1035,7 +1049,8 @@ export class TestDrive {
       const pos = this.qualiOrder
         ? this.qualiOrder.indexOf(this.driverIndex) + 1
         : null
-      if (hud.pos) hud.pos.textContent = pos ? `${pos}/22` : '-'
+      if (hud.pos)
+        hud.pos.textContent = pos ? `${pos}/${this.qualiOrder.length}` : '-'
     } else if (this.isRace) {
       const lap = t ? Math.min(sim.laps, Math.max(1, t.laps.length + 1)) : 1
       hud.lap.textContent = `${lap}/${sim.laps}`
@@ -1202,7 +1217,7 @@ export class TestDrive {
                 ? formatTime(r.time)
                 : `+${(r.time - best).toFixed(3)}`
         return `<li class='${me ? 'is-me' : ''}'><span class='p'>${r.time === undefined ? '-' : i + 1}</span><i style='background:${r.entry.team.colour}'></i>
-          <span class='c'>${r.entry.driver.code}</span><span class='g'>${gap}</span></li>`
+          <span class='c'>${helmetDot(r.entry.driver)}${r.entry.driver.code}</span><span class='g'>${gap}</span></li>`
       })
       .join('')
     if (html !== this.towerKey) {
@@ -1233,7 +1248,7 @@ export class TestDrive {
           : ''
       return `<li data-entry='${e.index}' class='${e === this.me ? 'is-me' : ''}${e.car.spin ? ' is-spin' : ''}'>
         <span class='p'>${i + 1}</span><i style='background:${e.team.colour}'></i>
-        <span class='c'>${e.driver.code}${e.limits.penalty ? `<em class='pen'>+${e.limits.penalty}s</em>` : ''}${pit}</span><span class='g'>${gap}</span></li>`
+        <span class='c'>${helmetDot(e.driver)}${e.driver.code}${e.limits.penalty ? `<em class='pen'>+${e.limits.penalty}s</em>` : ''}${pit}</span><span class='g'>${gap}</span></li>`
     })
     const html = rows.join('')
     if (html !== this.towerKey) {
@@ -1294,20 +1309,20 @@ export class TestDrive {
           <td class='n${fastest === r ? ' fl' : ''}'>${formatTime(r.best)}</td>
           ${sim.pitWindow ? `<td class='n stop'>${stop}</td>` : ''}
           <td class='n'>${e.grid} ${r.dsq ? '' : delta}</td>
-          <td class='n pts'>${r.points || ''}</td>
+          <td class='n pts'>${this.prequal ? (r.pos <= 6 && !r.dsq ? '<b class="through">THROUGH</b>' : '') : r.points || ''}</td>
         </tr>`
       })
       .join('')
     this.hud.results.innerHTML = `
       <div class='gp-d-results-card'>
-        <h2>${esc(this.track.name)} <span>${this.round ? `${esc(this.round.label)} · ` : ''}Race result</span></h2>
+        <h2>${esc(this.track.name)} <span>${this.round ? `${esc(this.round.label)} · ` : ''}${this.prequal ? 'Prequalifying result' : 'Race result'}</span></h2>
         <table>
-          <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Pen</th><th>Best lap</th>${sim.pitWindow ? '<th>Pit stop</th>' : ''}<th>Grid</th><th>Pts</th></tr></thead>
+          <thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Pen</th><th>Best lap</th>${sim.pitWindow ? '<th>Pit stop</th>' : ''}<th>Grid</th><th>${this.prequal ? '' : 'Pts'}</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <p class='gp-d-results-foot'>
           ${fastest ? `Fastest lap: <b>${esc(fastest.entry.driver.name)}</b> ${formatTime(fastest.best)} · ` : ''}
-          Times include penalties · ${sim.pitWindow ? `One stop required, laps ${sim.pitWindow.from}-${sim.pitWindow.to} · ` : ''}Points: ${POINTS.join('-')} · ${this.round ? '<kbd>Enter</kbd> continue to the standings' : `<kbd>R</kbd> race again · <kbd>Esc</kbd> ${this.exitLabel}`}
+          Times include penalties · ${sim.pitWindow ? `One stop required, laps ${sim.pitWindow.from}-${sim.pitWindow.to} · ` : ''}${this.prequal ? 'Top 6 go through to the race' : `Points: ${POINTS.join('-')}`} · ${this.round ? '<kbd>Enter</kbd> continue to the standings' : `<kbd>R</kbd> race again · <kbd>Esc</kbd> ${this.exitLabel}`}
         </p>
       </div>`
     this.hud.results.classList.add('is-visible')

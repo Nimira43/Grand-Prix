@@ -1204,3 +1204,21 @@ kbd {
   color: var(--red-soft);
   opacity: 1;
 }
+
+/* ---------- champions: helmets, prequalifying ---------- */
+
+.gp-d-tower b.hm {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
+  vertical-align: 0;
+}
+
+.gp-d-results-card b.through {
+  color: var(--green);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}

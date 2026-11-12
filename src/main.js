@@ -3,13 +3,15 @@ import './css/menu.css'
 import { Editor } from './editor/editor.js'
 import { TestDrive } from './race/testDrive.js'
 import { Menus } from './menu/menus.js'
+import { useField } from './data/fields.js'
 
 const app = document.querySelector('#app')
 let editor = null
 
 const game = {
-  startRace({ onAssistsChange, onExit, ...options }) {
+  startRace({ onAssistsChange, onExit, field = 'grid', ...options }) {
     menus.hide()
+    useField(field)
     const race = new TestDrive({ ...options, exitLabel: 'menu', onExit })
     race.onAssistsChange = onAssistsChange ?? null
     if (import.meta.env.DEV) window.__testDrive = race
@@ -17,6 +19,7 @@ const game = {
 
   openEditor({ fresh = false } = {}) {
     menus.hide()
+    useField('grid')
     if (!editor) {
       const box = document.createElement('div')
       box.className = 'gp-editor-box'

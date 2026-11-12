@@ -198,7 +198,7 @@ function startDetails(ctx) {
   }
 }
 
-export function drawCar(ctx, x, y, heading, teamId, T) {
+export function drawCar(ctx, x, y, heading, teamId, T, helmet = null) {
   const team = TEAMS[teamId]
   ctx.save()
   ctx.translate(x * T, y * T)
@@ -229,5 +229,20 @@ export function drawCar(ctx, x, y, heading, teamId, T) {
   ctx.fill()
   ctx.fillStyle = '#111'
   ctx.fillRect(-0.04, -0.022, 0.06, 0.044)
+  if (helmet) {
+    const r = 0.03
+    ctx.beginPath()
+    ctx.arc(-0.012, 0, r, 0, Math.PI * 2)
+    ctx.fillStyle = helmet[0]
+    ctx.fill()
+    ctx.save()
+    ctx.clip()
+    ctx.fillStyle = helmet[1]
+    ctx.fillRect(-0.012 - r, -0.009, r * 2, 0.018) 
+    ctx.restore()
+    ctx.lineWidth = 0.008
+    ctx.strokeStyle = 'rgba(0,0,0,0.65)'
+    ctx.stroke()
+  }
   ctx.restore()
 }

@@ -31,6 +31,8 @@ export async function simulateRound({
   qualifying = true,
   difficulty = 'normal',
   rng = Math.random,
+  seats = undefined,
+  points = POINTS,
 }) {
   const analysis = analyseTrack(track)
   if (!analysis.ok) throw new Error('Circuit is not raceable')
@@ -49,6 +51,7 @@ export async function simulateRound({
     laps,
     difficulty,
     seed: Math.floor(rng() * 1e9),
+    seats,
   })
   const entries = sim.entries
   const line = sim.line
@@ -122,7 +125,7 @@ export async function simulateRound({
       name: r.e.driver.name,
       team: r.e.driver.team,
       pos: i + 1,
-      points: POINTS[i] ?? 0,
+      points: points[i] ?? 0,
       dsq: false,
       grid: r.grid,
       gap,

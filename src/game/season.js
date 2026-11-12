@@ -1,5 +1,6 @@
 import { DRIVERS, TEAMS, POINTS } from '../data/grid.js'
 import { formatTime } from '../race/laps.js'
+import { CUP_GROUP, CUP_NAMES, CUP_COUNTS } from '../data/champions.js'
 
 export const SEASON_VERSION = 1
 
@@ -11,10 +12,14 @@ export function newSeason({
   qualifying,
   difficulty,
   assists,
+  field = 'grid',
+  prequalSim = false,
 }) {
   return {
     version: SEASON_VERSION,
     kind,
+    field, 
+    prequalSim, 
     created: Date.now(),
     driver: driverCode,
     laps,
@@ -141,7 +146,35 @@ export function driverStandings(season) {
   )
 }
 
+export function nationsCup(season) {
+  const table = new Map()
+  for (const id of new Set(Object.values(CUP_GROUP)))
+    table.set(id, { id, name: CUP_NAMES[id], points: 0, wins: 0, podiums: 0, finishes: [], drivers: new Set() })
+  for (const round of season.rounds) {
+    if (!round) continue
+    const counted = new Map()
+    for (const r of [...round.results].sort((a, b) => a.pos - b.pos)) {
+      const group = CUP_GROUP[r.team]
+      const t = table.get(group)
+      if (!t) continue
+      t.drivers.add(r.code)
+      if (r.dsq) continue
+      const n = counted.get(group) ?? 0
+      if (n >= CUP_COUNTS) continue
+      counted.set(group, n + 1)
+      t.points += r.points
+      t.finishes[r.pos - 1] = (t.finishes[r.pos - 1] ?? 0) + 1
+      if (r.pos === 1) t.wins++
+      if (r.pos <= 3) t.podiums++
+    }
+  }
+  return [...table.values()].sort(
+    (a, b) => b.points - a.points || countback(a, b) || a.name.localeCompare(b.name),
+  )
+}
+
 export function constructorStandings(season) {
+  if (season.field === 'champions') return nationsCup(season)
   const table = new Map()
   for (const id of Object.keys(TEAMS))
     table.set(id, {
@@ -180,10 +213,12 @@ export function titleDecided(season) {
 }
 
 const SEASON_KEYS = { player: 'grand-prix.season', tv: 'grand-prix.season.tv' }
+const seasonKey = (kind, field = 'grid') =>
+  field === 'champions' ? `${SEASON_KEYS[kind]}.champions` : SEASON_KEYS[kind]
 
-export function loadSeason(kind) {
+export function loadSeason(kind, field = 'grid') {
   try {
-    const s = JSON.parse(localStorage.getItem(SEASON_KEYS[kind]) || 'null')
+    const s = JSON.parse(localStorage.getItem(seasonKey(kind, field)) || 'null')
     return s &&
       s.version === SEASON_VERSION &&
       Array.isArray(s.calendar) &&
@@ -197,16 +232,16 @@ export function loadSeason(kind) {
 
 export function saveSeason(season) {
   try {
-    localStorage.setItem(SEASON_KEYS[season.kind], JSON.stringify(season))
+    localStorage.setItem(seasonKey(season.kind, season.field), JSON.stringify(season))
     return true
   } catch {
     return false
   }
 }
 
-export function clearSeason(kind) {
+export function clearSeason(kind, field = 'grid') {
   try {
-    localStorage.removeItem(SEASON_KEYS[kind])
+    localStorage.removeItem(seasonKey(kind, field))
   } catch {}
 }
 
@@ -217,16 +252,23 @@ const SETUP_KEYS = {
   tvSeason: 'grand-prix.setup.tvSeason',
 }
 
-export function loadSetup(kind) {
+export function loadSetup(kind, field = null) {
   try {
-    return JSON.parse(localStorage.getItem(SETUP_KEYS[kind]) || 'null')
+    const key = field && field !== 'grid' ? `${SETUP_KEYS[kind]}.${field}` : SETUP_KEYS[kind]
+    const last = JSON.parse(localStorage.getItem(`${SETUP_KEYS[kind]}.last`) || 'null')
+    if (!field && last && last !== 'grid') return loadSetup(kind, last)
+    const s = JSON.parse(localStorage.getItem(key) || 'null')
+    return s ? { field: field ?? 'grid', ...s } : null
   } catch {
     return null
   }
 }
 
 export function saveSetup(kind, setup) {
+  const field = setup.field ?? 'grid'
   try {
-    localStorage.setItem(SETUP_KEYS[kind], JSON.stringify(setup))
+    const key = field !== 'grid' ? `${SETUP_KEYS[kind]}.${field}` : SETUP_KEYS[kind]
+    localStorage.setItem(key, JSON.stringify(setup))
+    localStorage.setItem(`${SETUP_KEYS[kind]}.last`, JSON.stringify(field))
   } catch {}
 }

@@ -45,7 +45,9 @@ export class RaceSim {
     grid = null,
     flying = false,
     start = null,
+    points = POINTS, 
   }) {
+    this.points = points
     this.loop = loop
     this.surface = surface
     this.field = field
@@ -110,6 +112,18 @@ export class RaceSim {
       while (r > weights[k] && k < laps.length - 1) r -= weights[k++]
       e.pit.plan = laps[k]
     }
+  }
+
+  requestPit(e = this.player) {
+    if (!e || !this.pitLane || e.finished || e.pit.rail) return null
+    e.pit.request = !e.pit.request
+    return e.pit.request
+  }
+
+  nextPitLap(e) {
+    const lap = e.timer?.lap ?? 0
+    const lapLen = this.line.n * this.line.step
+    return lap === 0 || this.toPitJoin(e) > lapLen - 10 ? lap + 1 : lap
   }
 
   stopCounts(e, lap) {
@@ -182,6 +196,7 @@ export class RaceSim {
         rail: null,
         last: null,
         outUntil: 0,
+        request: false,
       },
     }
   }
@@ -200,7 +215,8 @@ export class RaceSim {
       (a, b) => (rank.get(a.index) ?? 99) - (rank.get(b.index) ?? 99),
     )
     order.forEach((e, pos) => {
-      const slot = this.loop.grid[pos]
+      const slots = this.loop.grid
+      const slot = slots[Math.min(pos, slots.length - 1)]
       e.grid = pos + 1
       e.car = createCar(e.stats, slot.x, slot.y, slot.heading)
       e.car.id = e.index
@@ -266,6 +282,9 @@ export class RaceSim {
           )
           input = assisted.input
           e.assistActive = assisted.active
+          const cap = this.pitApproachSpeed(e)
+          if (car.speed > cap + 0.1)
+            input = { ...input, throttle: 0, brake: Math.min(1, Math.max(0.3, (car.speed - cap) * 1.6)) }
         } else {
           const ctx = {
             time: this.time,
@@ -319,8 +338,9 @@ export class RaceSim {
   }
 
   wantsToPit(e) {
-    if (e.isPlayer || !this.pitWindow || e.pit.done || e.finished || !e.timer)
-      return false
+    if (!this.pitLane || e.finished || !e.timer) return false
+    if (e.isPlayer) return e.pit.request
+    if (!this.pitWindow || e.pit.done) return false
     const lap = e.timer.lap
     return lap >= e.pit.plan && lap <= this.pitWindow.to
   }
@@ -343,7 +363,7 @@ export class RaceSim {
     if (!e.timer || e.timer.lap < 1) return
     if (this.phase !== 'race') return
     let s = null
-    if (e.isPlayer) s = lane.turningIn(car.x, car.y, car.heading)
+    if (e.isPlayer && !e.pit.request) s = lane.turningIn(car.x, car.y, car.heading)
     else if (this.wantsToPit(e)) {
       const d = this.toPitJoin(e)
       if (d < 0.25 || d > this.line.n * this.line.step - 0.4)
@@ -362,10 +382,11 @@ export class RaceSim {
       box: lane.boxes[e.driver.team],
       wait: 0,
       lap,
-      side: 0, // shift into the garage bay
+      side: 0,
       speed: car.speed,
     }
     car.spin = null
+    e.pit.request = false
     if (e.isPlayer) {
       if (counts) this.event('PIT LANE · LIMITER ON', e, true)
       else if (e.pit.done)
@@ -651,7 +672,7 @@ export class RaceSim {
     return [...finished, ...running, ...out].map((e, i) => ({
       pos: i + 1,
       entry: e,
-      points: e.finished && !dsq(e) ? (POINTS[i] ?? 0) : 0,
+      points: e.finished && !dsq(e) ? (this.points[i] ?? 0) : 0,
       best: e.timer?.bestLap ?? null,
       laps: e.timer?.laps.length ?? 0,
       penalty: e.limits.penalty,

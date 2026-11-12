@@ -1,4 +1,5 @@
 import { AI } from './ai.js'
+import { currentField } from '../data/fields.js'
 
 export const QUALI = {
   noise: 0.004,
@@ -58,7 +59,7 @@ export async function calibrate({
   difficulty = 'normal',
   key = '',
 }) {
-  const cacheKey = `${key}|${difficulty}|${loop.length.toFixed(2)}`
+  const cacheKey = `${currentField()}|${key}|${difficulty}|${loop.length.toFixed(2)}`
   if (scaleCache.has(cacheKey)) return scaleCache.get(cacheKey)
   const { RaceSim } = await import('./raceSim.js')
   const { DRIVERS } = await import('../data/grid.js')
