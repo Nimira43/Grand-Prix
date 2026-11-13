@@ -5,7 +5,11 @@ import {
   START_WIDTH,
   localMatrix,
 } from './pieces.js'
-import { TEAMS, TEAM_ORDER } from '../data/grid.js'
+import { TEAMS } from '../data/grid.js'
+import {
+  GARAGE_TEAMS as GTEAMS,
+  GARAGE_ORDER as GORDER,
+} from '../data/fields.js'
 
 export const COLOURS = {
   grassA: '#2e8b3a',
@@ -144,9 +148,9 @@ function startDetails(ctx) {
   const g1 = 8.1
   ctx.fillStyle = COLOURS.garageRoof
   ctx.fillRect(g0, 0.03, g1 - g0, 0.26)
-  const gw = (g1 - g0) / TEAM_ORDER.length
-  TEAM_ORDER.forEach((id, i) => {
-    const team = TEAMS[id]
+  const gw = (g1 - g0) / GORDER.length
+  GORDER.forEach((id, i) => {
+    const team = GTEAMS[id]
     const x = g0 + i * gw + 0.04
     ctx.fillStyle = team.colour
     ctx.fillRect(x, 0.06, gw - 0.08, 0.15)
@@ -156,8 +160,8 @@ function startDetails(ctx) {
 
   const laneV = START_LAYOUT.pitLane[1][1]
   const laneHalf = START_LAYOUT.pitLaneWidth / 2
-  TEAM_ORDER.forEach((id, i) => {
-    const team = TEAMS[id]
+  GORDER.forEach((id, i) => {
+    const team = GTEAMS[id]
     const cu = g0 + gw * (i + 0.5)
     ctx.fillStyle = team.colour
     ctx.fillRect(cu - gw / 2 + 0.07, laneV - laneHalf + 0.005, gw - 0.14, 0.03)
@@ -238,7 +242,7 @@ export function drawCar(ctx, x, y, heading, teamId, T, helmet = null) {
     ctx.save()
     ctx.clip()
     ctx.fillStyle = helmet[1]
-    ctx.fillRect(-0.012 - r, -0.009, r * 2, 0.018) 
+    ctx.fillRect(-0.012 - r, -0.009, r * 2, 0.018) // stripe across the crown
     ctx.restore()
     ctx.lineWidth = 0.008
     ctx.strokeStyle = 'rgba(0,0,0,0.65)'

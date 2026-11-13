@@ -1,6 +1,12 @@
 import { DRIVERS, TEAMS, POINTS } from '../data/grid.js'
 import { formatTime } from '../race/laps.js'
-import { CUP_GROUP, CUP_NAMES, CUP_COUNTS } from '../data/champions.js'
+import {
+  WORLD_CUP,
+  CUP_TEAM,
+  CUP_SQUAD,
+  CHAMPION_DRIVERS,
+  SEEDED_PLACES,
+} from '../data/champions.js'
 
 export const SEASON_VERSION = 1
 
@@ -18,8 +24,8 @@ export function newSeason({
   return {
     version: SEASON_VERSION,
     kind,
-    field, 
-    prequalSim, 
+    field,
+    prequalSim,
     created: Date.now(),
     driver: driverCode,
     laps,
@@ -146,35 +152,68 @@ export function driverStandings(season) {
   )
 }
 
-export function nationsCup(season) {
+export function worldCup(season) {
   const table = new Map()
-  for (const id of new Set(Object.values(CUP_GROUP)))
-    table.set(id, { id, name: CUP_NAMES[id], points: 0, wins: 0, podiums: 0, finishes: [], drivers: new Set() })
+  for (const [id, t] of Object.entries(WORLD_CUP))
+    table.set(id, {
+      id,
+      name: t.name,
+      colour: t.colour,
+      squad: CUP_SQUAD[id],
+      points: 0,
+      wins: 0,
+      podiums: 0,
+      finishes: [],
+      drivers: new Set(),
+    })
   for (const round of season.rounds) {
     if (!round) continue
-    const counted = new Map()
-    for (const r of [...round.results].sort((a, b) => a.pos - b.pos)) {
-      const group = CUP_GROUP[r.team]
-      const t = table.get(group)
+    for (const r of round.results) {
+      const t = table.get(CUP_TEAM[r.team])
       if (!t) continue
       t.drivers.add(r.code)
       if (r.dsq) continue
-      const n = counted.get(group) ?? 0
-      if (n >= CUP_COUNTS) continue
-      counted.set(group, n + 1)
       t.points += r.points
       t.finishes[r.pos - 1] = (t.finishes[r.pos - 1] ?? 0) + 1
       if (r.pos === 1) t.wins++
       if (r.pos <= 3) t.podiums++
     }
   }
+  for (const t of table.values()) t.average = t.points / t.squad
   return [...table.values()].sort(
-    (a, b) => b.points - a.points || countback(a, b) || a.name.localeCompare(b.name),
+    (a, b) =>
+      b.average - a.average ||
+      b.wins - a.wins ||
+      countback(a, b) ||
+      a.name.localeCompare(b.name),
   )
 }
 
+export const originalSeeds = () =>
+  new Set(CHAMPION_DRIVERS.filter((d) => d.star).map((d) => d.code))
+
+export function seededFor(season, i) {
+  const prev = i > 0 ? season.rounds[i - 1] : null
+  if (!prev) return originalSeeds()
+  return new Set(
+    [...prev.results]
+      .sort((a, b) => a.pos - b.pos)
+      .slice(0, SEEDED_PLACES)
+      .map((r) => r.code),
+  )
+}
+
+export function seedingMoves(season, i) {
+  const before = seededFor(season, i)
+  const after = seededFor(season, i + 1)
+  return {
+    up: [...after].filter((c) => !before.has(c)),
+    down: [...before].filter((c) => !after.has(c)),
+  }
+}
+
 export function constructorStandings(season) {
-  if (season.field === 'champions') return nationsCup(season)
+  if (season.field === 'champions') return worldCup(season)
   const table = new Map()
   for (const id of Object.keys(TEAMS))
     table.set(id, {
@@ -218,7 +257,9 @@ const seasonKey = (kind, field = 'grid') =>
 
 export function loadSeason(kind, field = 'grid') {
   try {
-    const s = JSON.parse(localStorage.getItem(seasonKey(kind, field)) || 'null')
+    const s = JSON.parse(
+      localStorage.getItem(seasonKey(kind, field)) || 'null',
+    )
     return s &&
       s.version === SEASON_VERSION &&
       Array.isArray(s.calendar) &&
@@ -232,7 +273,10 @@ export function loadSeason(kind, field = 'grid') {
 
 export function saveSeason(season) {
   try {
-    localStorage.setItem(seasonKey(season.kind, season.field), JSON.stringify(season))
+    localStorage.setItem(
+      seasonKey(season.kind, season.field),
+      JSON.stringify(season),
+    )
     return true
   } catch {
     return false
@@ -254,8 +298,13 @@ const SETUP_KEYS = {
 
 export function loadSetup(kind, field = null) {
   try {
-    const key = field && field !== 'grid' ? `${SETUP_KEYS[kind]}.${field}` : SETUP_KEYS[kind]
-    const last = JSON.parse(localStorage.getItem(`${SETUP_KEYS[kind]}.last`) || 'null')
+    const key =
+      field && field !== 'grid'
+        ? `${SETUP_KEYS[kind]}.${field}`
+        : SETUP_KEYS[kind]
+    const last = JSON.parse(
+      localStorage.getItem(`${SETUP_KEYS[kind]}.last`) || 'null',
+    )
     if (!field && last && last !== 'grid') return loadSetup(kind, last)
     const s = JSON.parse(localStorage.getItem(key) || 'null')
     return s ? { field: field ?? 'grid', ...s } : null
@@ -267,7 +316,8 @@ export function loadSetup(kind, field = null) {
 export function saveSetup(kind, setup) {
   const field = setup.field ?? 'grid'
   try {
-    const key = field !== 'grid' ? `${SETUP_KEYS[kind]}.${field}` : SETUP_KEYS[kind]
+    const key =
+      field !== 'grid' ? `${SETUP_KEYS[kind]}.${field}` : SETUP_KEYS[kind]
     localStorage.setItem(key, JSON.stringify(setup))
     localStorage.setItem(`${SETUP_KEYS[kind]}.last`, JSON.stringify(field))
   } catch {}

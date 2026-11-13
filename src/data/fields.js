@@ -1,5 +1,9 @@
 import { DRIVERS, TEAMS, TEAM_ORDER, ENGINES } from './grid.js'
-import { CHAMPION_DRIVERS, CHAMPION_TEAMS, CHAMPION_ENGINES } from './champions.js'
+import {
+  CHAMPION_DRIVERS,
+  CHAMPION_TEAMS,
+  CHAMPION_ENGINES,
+} from './champions.js'
 
 const FIELDS = {
   grid: {
@@ -18,7 +22,12 @@ const FIELDS = {
 
 let current = 'grid'
 
-export const FIELD_LABELS = Object.fromEntries(Object.entries(FIELDS).map(([k, f]) => [k, f.label]))
+export const GARAGE_TEAMS = FIELDS.grid.teams
+export const GARAGE_ORDER = Object.keys(FIELDS.grid.teams)
+
+export const FIELD_LABELS = Object.fromEntries(
+  Object.entries(FIELDS).map(([k, f]) => [k, f.label]),
+)
 
 export function useField(name = 'grid') {
   const f = FIELDS[name] ? name : 'grid'

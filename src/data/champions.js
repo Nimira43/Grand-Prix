@@ -35,7 +35,7 @@ const champ = (number, name, code, team, star, helmet) => ({
   code,
   team,
   star,
-  rating: star ? 10 : 9,
+  rating: 10,
   consistency: 'normal',
   aggression: 'normal',
   helmet,
@@ -80,18 +80,28 @@ export const CHAMPION_DRIVERS = [
   champ(37, 'Verstappen', 'VER', 'ned', true, ['#1A237E', '#E53935']),
 ]
 
-export const CUP_GROUP = Object.fromEntries(
-  Object.keys(CHAMPION_TEAMS).map((id) => {
-    const count = CHAMPION_DRIVERS.filter((d) => d.team === id).length
-    return [id, count > 1 ? id : 'row']
-  }),
-)
-export const CUP_NAMES = {
-  ...Object.fromEntries(
-    Object.entries(CHAMPION_TEAMS).map(([id, t]) => [id, t.name]),
-  ),
-  row: 'Rest of the World',
+export const WORLD_CUP = {
+  gbr: { name: 'Great Britain', colour: '#00502D', nations: ['gbr'] },
+  eur: {
+    name: 'Europe',
+    colour: '#003399',
+    nations: ['aut', 'fin', 'fra', 'ger', 'spa', 'ned', 'ita'],
+  },
+  row: {
+    name: 'Rest of the World',
+    colour: '#C9A227',
+    nations: ['arg', 'aus', 'usa', 'nze', 'bra', 'saf', 'can'],
+  },
 }
-export const CUP_COUNTS = 2
+export const CUP_TEAM = Object.fromEntries(
+  Object.entries(WORLD_CUP).flatMap(([id, t]) => t.nations.map((n) => [n, id])),
+)
+export const CUP_SQUAD = Object.fromEntries(
+  Object.keys(WORLD_CUP).map((id) => [
+    id,
+    CHAMPION_DRIVERS.filter((d) => CUP_TEAM[d.team] === id).length,
+  ]),
+)
 
 export const PREQUAL_PLACES = 6
+export const SEEDED_PLACES = 16

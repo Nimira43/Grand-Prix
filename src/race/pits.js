@@ -1,5 +1,5 @@
 import { START_LAYOUT, makeXform } from '../track/pieces.js'
-import { TEAM_ORDER } from '../data/grid.js'
+import { GARAGE_ORDER } from '../data/fields.js'
 
 export const PIT = {
   windowFrom: 3,
@@ -53,9 +53,10 @@ export class PitLane {
     this.laneStart = this.cum[2]
     this.laneEnd = this.cum[3]
     this.exitAt = this.cum[4] + 0.15
-    const gw = (G1 - G0) / TEAM_ORDER.length
+    const gw = (G1 - G0) / GARAGE_ORDER.length
+    this.garages = GARAGE_ORDER.map((_, i) => along(G0 + gw * (i + 0.5)))
     this.boxes = Object.fromEntries(
-      TEAM_ORDER.map((id, i) => [id, along(G0 + gw * (i + 0.5))]),
+      GARAGE_ORDER.map((id, i) => [id, this.garages[i]]),
     )
     this.joinPoint = this.points[0]
     this.entryZone = { from: this.cum[1] - 0.05, to: this.laneEnd }
@@ -65,6 +66,10 @@ export class PitLane {
     const [bx, by] = xf(5, 0)
     const l = Math.hypot(bx - ax, by - ay) || 1
     this.garageDir = [(bx - ax) / l, (by - ay) / l]
+  }
+
+  garage(n) {
+    return this.garages[this.garages.length - n]
   }
 
   at(s) {

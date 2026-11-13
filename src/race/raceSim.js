@@ -15,6 +15,7 @@ import { applyBrakeAssist } from './assists.js'
 import { TrackLimits } from './trackLimits.js'
 import { simulateQualifying, gridOrder } from './qualifying.js'
 import { PIT, PitLane, pitWindow, stopTime, railGearbox } from './pits.js'
+import { currentField } from '../data/fields.js'
 
 const LIGHTS_ON = 0.6
 const LIGHT_GAP = 1
@@ -45,7 +46,7 @@ export class RaceSim {
     grid = null,
     flying = false,
     start = null,
-    points = POINTS, 
+    points = POINTS,
   }) {
     this.points = points
     this.loop = loop
@@ -92,6 +93,17 @@ export class RaceSim {
     const i = globalNearest(this.line, mid.x, mid.y)
     if (Math.cos(this.line.dir[i] - mid.heading) < 0.5) return
     this.pitLane = lane
+
+    if (currentField() === 'champions') {
+      const pairs = Math.min(
+        lane.garages.length,
+        Math.ceil(this.entries.length / 2),
+      )
+      for (const e of this.entries) {
+        e.pit.garage = ((e.grid - 1) % pairs) + 1
+        e.pit.box = lane.garage(e.pit.garage)
+      }
+    }
     this.pitJoinIdx = globalNearest(
       this.line,
       lane.joinPoint[0],
@@ -284,7 +296,11 @@ export class RaceSim {
           e.assistActive = assisted.active
           const cap = this.pitApproachSpeed(e)
           if (car.speed > cap + 0.1)
-            input = { ...input, throttle: 0, brake: Math.min(1, Math.max(0.3, (car.speed - cap) * 1.6)) }
+            input = {
+              ...input,
+              throttle: 0,
+              brake: Math.min(1, Math.max(0.3, (car.speed - cap) * 1.6)),
+            }
         } else {
           const ctx = {
             time: this.time,
@@ -363,7 +379,8 @@ export class RaceSim {
     if (!e.timer || e.timer.lap < 1) return
     if (this.phase !== 'race') return
     let s = null
-    if (e.isPlayer && !e.pit.request) s = lane.turningIn(car.x, car.y, car.heading)
+    if (e.isPlayer && !e.pit.request)
+      s = lane.turningIn(car.x, car.y, car.heading)
     else if (this.wantsToPit(e)) {
       const d = this.toPitJoin(e)
       if (d < 0.25 || d > this.line.n * this.line.step - 0.4)
@@ -379,7 +396,7 @@ export class RaceSim {
       ox: car.x - p.x,
       oy: car.y - p.y,
       phase: counts ? 'in' : 'through',
-      box: lane.boxes[e.driver.team],
+      box: e.pit.box ?? lane.boxes[e.driver.team],
       wait: 0,
       lap,
       side: 0,
@@ -430,8 +447,8 @@ export class RaceSim {
       for (const o of this.entries) {
         const q = o.pit.rail
         if (!q || o === e || q.s <= r.s) continue
-        if (q.side > 0.05 && o.driver.team !== e.driver.team) continue
-        if (q.phase === 'box' && o.driver.team !== e.driver.team) continue
+        if (q.side > 0.05 && q.box !== r.box) continue
+        if (q.phase === 'box' && q.box !== r.box) continue
         const gap = q.s - r.s - PIT.gap
         want = Math.min(
           want,
